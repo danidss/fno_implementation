@@ -7,13 +7,16 @@ from functools import partial
 class FourierLayer(nn.Module):
     """
     """
+
     def __init__(self, dim: int, in_channels: int, out_channels: int, modes: int):
         super().__init__()
 
         self.modes_slices = (slice(0, modes),) * dim
 
         self.skip_weight = nn.Linear(in_channels, out_channels)
-        self.fourier_weight = nn.Linear(in_channels, out_channels, dtype=torch.complex64)
+        self.fourier_weight = nn.Linear(
+            in_channels, out_channels, dtype=torch.complex64
+        )
         self.gelu = nn.GELU()
 
         if dim == 1:
@@ -31,12 +34,18 @@ class FourierLayer(nn.Module):
         skip_connection = self.skip_weight(vt)  # (batch, *spatial, out_channels)
 
         fouriered = self.fft(vt)  # (batch, *spatial[-1], spatial[-1]//2+1, in_channels)
-        lowest_modes = fouriered[:, *self.modes_slices, :]  # (batch, *modes, in_channels)
+        lowest_modes = fouriered[:, *self.modes_slices, :]  # (b, *modes, in_channels)
         mixed_channels = self.fourier_weight(lowest_modes)  # (b, *modes, out_channels)
 
         # Fill removed modes with zeros
-        full_spectrum = torch.zeros(fouriered.shape[:-1] + (mixed_channels.shape[-1],), device=vt.device, dtype=torch.complex64)
-        full_spectrum[:, *self.modes_slices, :] = mixed_channels  # (b, *spatial, out_channels)
+        full_spectrum = torch.zeros(
+            fouriered.shape[:-1] + (mixed_channels.shape[-1],),
+            device=vt.device,
+            dtype=torch.complex64,
+        )
+        full_spectrum[:, *self.modes_slices, :] = (
+            mixed_channels  # (b, *spatial, out_channels)
+        )
 
         inversed = self.ifft(full_spectrum)  # (batch, *spatial, out_channels)
 
@@ -47,3 +56,31 @@ class FourierLayer(nn.Module):
 class FNO(nn.Module):
     """
     """
+
+    def __init__(
+        self,
+        dim: int,
+        modes: int,
+        layer_shapes: list[tuple[int, int]],
+        in_channels: int = 1,
+        out_channels: int = 1,
+    ):
+        super().__init__()
+
+        self.lift = nn.Linear(in_channels, layer_shapes[0][0])
+        self.fourier_layers = nn.ModuleList(
+            [
+                FourierLayer(dim=dim, in_channels=in_c, out_channels=out_c, modes=modes)
+                for in_c, out_c in layer_shapes
+            ]
+        )
+        self.project = nn.Linear(layer_shapes[-1][1], out_channels)
+
+    def forward(self, vt: torch.Tensor):
+        # vt: (batch, *spatial, in_channels)
+        lifted = self.lift(vt)  # (batch, *spatial, layer_shapes[0][0])
+        fouriered = lifted
+        for layer in self.fourier_layers:
+            fouriered = layer(fouriered)  # (batch, *spatial, layer_shapes[-1][1])
+        projected = self.project(fouriered)  # (batch, *spatial, out_channels)
+        return projected
