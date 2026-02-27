@@ -8,7 +8,9 @@ class FourierLayer(nn.Module):
     """
     """
 
-    def __init__(self, dim: int, in_channels: int, out_channels: int, modes: int):
+    def __init__(
+        self, dim: int, in_channels: int, out_channels: int, modes: int
+    ) -> None:
         super().__init__()
 
         self.modes_slices = (slice(0, modes),) * dim
@@ -29,7 +31,7 @@ class FourierLayer(nn.Module):
             self.fft = partial(torch.fft.rfftn, dim=tuple(range(1, dim+1)))
             self.ifft = partial(torch.fft.irfftn, dim=tuple(range(1, dim+1)))
 
-    def forward(self, vt: torch.Tensor):
+    def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, *spatial, in_channels)
         skip_connection = self.skip_weight(vt)  # (batch, *spatial, out_channels)
 
@@ -64,7 +66,7 @@ class FNO(nn.Module):
         layer_shapes: list[tuple[int, int]],
         in_channels: int = 1,
         out_channels: int = 1,
-    ):
+    ) -> None:
         super().__init__()
 
         self.lift = nn.Linear(in_channels, layer_shapes[0][0])
@@ -76,7 +78,7 @@ class FNO(nn.Module):
         )
         self.project = nn.Linear(layer_shapes[-1][1], out_channels)
 
-    def forward(self, vt: torch.Tensor):
+    def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, *spatial, in_channels)
         lifted = self.lift(vt)  # (batch, *spatial, layer_shapes[0][0])
         fouriered = lifted
@@ -84,3 +86,40 @@ class FNO(nn.Module):
             fouriered = layer(fouriered)  # (batch, *spatial, layer_shapes[-1][1])
         projected = self.project(fouriered)  # (batch, *spatial, out_channels)
         return projected
+
+
+class LpLoss(object):
+    """
+    Relative L2 norm loss, widely used for PDE surrogate models like FNO.
+    Computes: ||x - y||_2 / ||y||_2
+    """
+
+    def __init__(
+        self, d: int = 2, p: int = 2, size_average: bool = True, reduction: bool = True
+    ) -> None:
+        super(LpLoss, self).__init__()
+        assert d > 0 and p > 0
+        self.d = d
+        self.p = p
+        self.reduction = reduction
+        self.size_average = size_average
+
+    def rel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        # x: prediction, y: ground truth
+        num_examples = x.size(0)
+
+        diff_norms = torch.norm(
+            x.reshape(num_examples, -1) - y.reshape(num_examples, -1), self.p, 1
+        )
+        y_norms = torch.norm(y.reshape(num_examples, -1), self.p, 1)
+
+        if self.reduction:
+            if self.size_average:
+                return torch.mean(diff_norms / y_norms)
+            else:
+                return torch.sum(diff_norms / y_norms)
+
+        return diff_norms / y_norms
+
+    def __call__(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return self.rel(x, y)
