@@ -1,58 +1,252 @@
 import torch
 import torch.nn as nn
+import torch.fft as fft
 
-from functools import partial
+
+# TODO check better contiguous allocation for the matrix
+# multiplication instead of one einsum for each corner
+# TODO check if we can compute only the needed modes instead of all the fft
+# TODO check if we can optimize the padding / zeros creation
+
+
+class SpectralConv1d(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, modes: int):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.modes = modes
+
+        scale = 1 / (in_channels * out_channels)
+        self.weights = nn.Parameter(
+            scale
+            * torch.rand(in_channels, out_channels, self.modes, dtype=torch.cfloat)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Shape of x: (batch_size, in_channels, n)
+        batchsize = x.shape[0]
+
+        x_ft: torch.Tensor = fft.rfft(x)
+
+        out_ft = torch.zeros(
+            batchsize,
+            self.out_channels,
+            x_ft.shape[-1],
+            device=x.device,
+            dtype=torch.cfloat,
+        )
+        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x' = frequency mode
+        out_ft[:, :, : self.modes] = torch.einsum(
+            "bix,iox->box", x_ft[:, :, : self.modes], self.weights
+        )
+
+        return fft.irfft(out_ft, n=x.shape[-1])
+
+
+class SpectralConv2d(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, modes1: int, modes2: int):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.modes1 = modes1
+        self.modes2 = modes2
+
+        # We initialize the weights from an uniform u_r+u_c*i
+        scale = 1 / (in_channels * out_channels)
+
+        # In 2D using Real FFT, we have 2 corners of low frequencies:
+        # 1. Pos x, Pos y
+        # 2. Neg x, Pos y (because of the real FFT, y is only positive)
+        self.weights1 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat
+            )
+        )
+        self.weights2 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat
+            )
+        )
+
+    def compl_mul2d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y' = frequency modes
+        return torch.einsum("bixy,ioxy->boxy", input, weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Shape of x: (batch_size, in_channels, n, m)
+        batchsize = x.shape[0]
+
+        x_ft: torch.Tensor = fft.rfft2(x)
+
+        out_ft = torch.zeros(
+            batchsize,
+            self.out_channels,
+            x.shape[-2],
+            x_ft.shape[-1],
+            device=x.device,
+            dtype=torch.cfloat,
+        )
+        # Corner 1: Top-Left (Positive frequencies for dim 1, Positive for dim 2)
+        out_ft[:, :, : self.modes1, : self.modes2] = self.compl_mul2d(
+            x_ft[:, :, : self.modes1, : self.modes2], self.weights1
+        )
+        # Corner 2: Bottom-Left (Negative frequencies for dim 1, Positive for dim 2)
+        out_ft[:, :, -self.modes1 :, : self.modes2] = self.compl_mul2d(
+            x_ft[:, :, -self.modes1 :, : self.modes2], self.weights2
+        )
+
+        return fft.irfft2(out_ft, s=(x.shape[-2], x.shape[-1]))
+
+
+class SpectralConv3d(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        modes1: int,
+        modes2: int,
+        modes3: int,
+    ):
+        super().__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        self.modes1 = modes1
+        self.modes2 = modes2
+        self.modes3 = modes3
+
+        # We initialize the weights from an uniform u_r+u_c*i
+        scale = 1 / (in_channels * out_channels)
+
+        # In 3D using Real FFT, we have 4 corners of low frequencies:
+        # 1. Pos x, Pos y (Pos z is given by RFFT)
+        # 2. Neg x, Pos y
+        # 3. Pos x, Neg y
+        # 4. Neg x, Neg y
+        self.weights1 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels,
+                out_channels,
+                self.modes1,
+                self.modes2,
+                self.modes3,
+                dtype=torch.cfloat,
+            )
+        )
+        self.weights2 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels,
+                out_channels,
+                self.modes1,
+                self.modes2,
+                self.modes3,
+                dtype=torch.cfloat,
+            )
+        )
+        self.weights3 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels,
+                out_channels,
+                self.modes1,
+                self.modes2,
+                self.modes3,
+                dtype=torch.cfloat,
+            )
+        )
+        self.weights4 = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels,
+                out_channels,
+                self.modes1,
+                self.modes2,
+                self.modes3,
+                dtype=torch.cfloat,
+            )
+        )
+
+    def compl_mul3d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y', 'z' = frequency modes
+        return torch.einsum("bixyz,ioxyz->boxyz", input, weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Shape of x: (batch_size, in_channels, n, m, p)
+        batchsize = x.shape[0]
+
+        x_ft = fft.rfftn(x, dim=[-3, -2, -1])
+
+        out_ft = torch.zeros(
+            batchsize,
+            self.out_channels,
+            x.shape[-3],
+            x.shape[-2],
+            x_ft.shape[-1],
+            device=x.device,
+            dtype=torch.cfloat,
+        )
+
+        # Corner 1: Positive x, Positive y, Positive z
+        out_ft[:, :, : self.modes1, : self.modes2, : self.modes3] = self.compl_mul3d(
+            x_ft[:, :, : self.modes1, : self.modes2, : self.modes3], self.weights1
+        )
+        # Corner 2: Negative x, Positive y, Positive z
+        out_ft[:, :, -self.modes1 :, : self.modes2, : self.modes3] = self.compl_mul3d(
+            x_ft[:, :, -self.modes1 :, : self.modes2, : self.modes3], self.weights2
+        )
+        # Corner 3: Positive x, Negative y, Positive z
+        out_ft[:, :, : self.modes1, -self.modes2 :, : self.modes3] = self.compl_mul3d(
+            x_ft[:, :, : self.modes1, -self.modes2 :, : self.modes3], self.weights3
+        )
+        # Corner 4: Negative x, Negative y, Positive z
+        out_ft[:, :, -self.modes1 :, -self.modes2 :, : self.modes3] = self.compl_mul3d(
+            x_ft[:, :, -self.modes1 :, -self.modes2 :, : self.modes3], self.weights4
+        )
+
+        return fft.irfftn(out_ft, s=(x.shape[-3], x.shape[-2], x.shape[-1]))
+
+
+SPECTRAL_CONV = {
+    1: SpectralConv1d,
+    2: SpectralConv2d,
+    3: SpectralConv3d,
+}
+
+SKIP_CONV = {
+    1: nn.Conv1d,
+    2: nn.Conv2d,
+    3: nn.Conv3d,
+}
 
 
 class FourierLayer(nn.Module):
-    """
-    """
+    """ """
 
     def __init__(
         self, dim: int, in_channels: int, out_channels: int, modes: int
     ) -> None:
         super().__init__()
 
-        self.modes_slices = (slice(0, modes),) * dim
-
-        self.skip_weight = nn.Linear(in_channels, out_channels)
-        self.fourier_weight = nn.Linear(
-            in_channels, out_channels, dtype=torch.complex64
+        assert dim in SPECTRAL_CONV.keys(), (
+            f"Dimension must be one of {list(SPECTRAL_CONV.keys())}"
         )
+
+        self.skip_weight = SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
+        self.conv = SPECTRAL_CONV[dim](in_channels, out_channels, *((modes,) * dim))
         self.gelu = nn.GELU()
 
-        if dim == 1:
-            self.fft = partial(torch.fft.rfft, dim=1)
-            self.ifft = partial(torch.fft.irfft, dim=1)
-        elif dim == 2:
-            self.fft = partial(torch.fft.rfft2, dim=(1, 2))
-            self.ifft = partial(torch.fft.irfft2, dim=(1, 2))
-        else:
-            self.fft = partial(torch.fft.rfftn, dim=tuple(range(1, dim+1)))
-            self.ifft = partial(torch.fft.irfftn, dim=tuple(range(1, dim+1)))
-
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
-        # vt: (batch, *spatial, in_channels)
-        skip_connection = self.skip_weight(vt)  # (batch, *spatial, out_channels)
-
-        fouriered = self.fft(vt)  # (batch, *spatial[-1], spatial[-1]//2+1, in_channels)
-        lowest_modes = fouriered[:, *self.modes_slices, :]  # (b, *modes, in_channels)
-        mixed_channels = self.fourier_weight(lowest_modes)  # (b, *modes, out_channels)
-
-        # Fill removed modes with zeros
-        full_spectrum = torch.zeros(
-            fouriered.shape[:-1] + (mixed_channels.shape[-1],),
-            device=vt.device,
-            dtype=torch.complex64,
-        )
-        full_spectrum[:, *self.modes_slices, :] = (
-            mixed_channels  # (b, *spatial, out_channels)
-        )
-
-        inversed = self.ifft(full_spectrum)  # (batch, *spatial, out_channels)
-
-        return self.gelu(inversed + skip_connection)
-
+        # vt: (batch, in_channels, *spatial)
+        return self.gelu(self.conv(vt) + self.skip_weight(vt))
 
 
 class FNO(nn.Module):
@@ -63,32 +257,32 @@ class FNO(nn.Module):
         self,
         dim: int,
         modes: int,
-        layer_shapes: list[tuple[int, int]],
+        layer_shapes: list[int],
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
         super().__init__()
 
-        self.lift = nn.Linear(in_channels, layer_shapes[0][0])
+        self.lift = SKIP_CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
         self.fourier_layers = nn.ModuleList(
             [
                 FourierLayer(dim=dim, in_channels=in_c, out_channels=out_c, modes=modes)
-                for in_c, out_c in layer_shapes
+                for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
             ]
         )
-        self.project = nn.Linear(layer_shapes[-1][1], out_channels)
+        self.project = SKIP_CONV[dim](layer_shapes[-1], out_channels, kernel_size=1)
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
-        # vt: (batch, *spatial, in_channels)
-        lifted = self.lift(vt)  # (batch, *spatial, layer_shapes[0][0])
+        # vt: (batch, in_channels, *spatial)
+        lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
         fouriered = lifted
         for layer in self.fourier_layers:
-            fouriered = layer(fouriered)  # (batch, *spatial, layer_shapes[-1][1])
-        projected = self.project(fouriered)  # (batch, *spatial, out_channels)
+            fouriered = layer(fouriered)  # (batch, layer_shapes[i], *spatial)
+        projected = self.project(fouriered)  # (batch, out_channels, *spatial)
         return projected
 
 
-class LpLoss(object):
+class LpLoss:
     """
     Relative L2 norm loss, widely used for PDE surrogate models like FNO.
     Computes: ||x - y||_2 / ||y||_2
@@ -97,7 +291,6 @@ class LpLoss(object):
     def __init__(
         self, d: int = 2, p: int = 2, size_average: bool = True, reduction: bool = True
     ) -> None:
-        super(LpLoss, self).__init__()
         assert d > 0 and p > 0
         self.d = d
         self.p = p
@@ -106,12 +299,10 @@ class LpLoss(object):
 
     def rel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         # x: prediction, y: ground truth
-        num_examples = x.size(0)
+        dims = tuple(range(1, x.ndim))
 
-        diff_norms = torch.norm(
-            x.reshape(num_examples, -1) - y.reshape(num_examples, -1), self.p, 1
-        )
-        y_norms = torch.norm(y.reshape(num_examples, -1), self.p, 1)
+        diff_norms = torch.linalg.vector_norm(x - y, ord=self.p, dim=dims)
+        y_norms = torch.linalg.vector_norm(y, ord=self.p, dim=dims)
 
         if self.reduction:
             if self.size_average:
