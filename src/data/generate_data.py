@@ -95,7 +95,7 @@ def cache_incremental_hdf5(base_filepath):
     return decorator
 
 
-def generate_grf_1d(N, scale, alpha, power):
+def generate_grf_1d(N: int, scale: float, alpha: float, power: float) -> np.ndarray:
     k = fftfreq(N, 1 / N)
     eig = scale * ((2 * np.pi * k) ** 2 + alpha) ** (-power)
     eig[0] = 0.0
@@ -103,7 +103,7 @@ def generate_grf_1d(N, scale, alpha, power):
     return np.real(ifft(noise * np.sqrt(eig) * N))
 
 
-def generate_grf_2d(N, scale, alpha, power):
+def generate_grf_2d(N: int, scale: float, alpha: float, power: float) -> np.ndarray:
     kx = fftfreq(N, 1 / N)
     ky = fftfreq(N, 1 / N)
     kx, ky = np.meshgrid(kx, ky, indexing="ij")
@@ -114,7 +114,9 @@ def generate_grf_2d(N, scale, alpha, power):
 
 
 @cache_incremental_hdf5(f"{DATA_DIR}/burgers")
-def generate_burgers_data(n_samples=1000, **kwargs):
+def generate_burgers_data(
+    n_samples: int = 1000, **kwargs: float
+) -> dict[str, np.ndarray]:
     """
     1D Burgers' equation using split-step method.
     """
@@ -160,7 +162,9 @@ def generate_burgers_data(n_samples=1000, **kwargs):
 
 
 @cache_incremental_hdf5(f"{DATA_DIR}/darcy")
-def generate_darcy_data(n_samples=1000, **kwargs):
+def generate_darcy_data(
+    n_samples: int = 1000, **kwargs: float
+) -> dict[str, np.ndarray]:
     """
     2D Darcy Flow equation using second-order finite difference scheme.
     """
@@ -236,7 +240,9 @@ def generate_darcy_data(n_samples=1000, **kwargs):
 
 
 @cache_incremental_hdf5(f"{DATA_DIR}/navier_stokes")
-def generate_navier_stokes_data(n_samples=1000, **kwargs):
+def generate_navier_stokes_data(
+    n_samples: int = 1000, **kwargs: float
+) -> dict[str, np.ndarray]:
     """
     2D Navier-Stokes equation (vorticity form) using pseudospectral method.
     """
