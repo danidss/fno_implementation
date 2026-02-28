@@ -24,11 +24,12 @@ class BurgersDataset(Dataset):
         self.n_samples, self.n_x = self.a.shape
 
         # Append spatial grid coordinates (x in [0, 1]) as an additional channel
-        self.grid = torch.linspace(0, 1, self.n_x).reshape(1, self.n_x, 1)
+        self.grid = torch.linspace(0, 1, self.n_x)
 
         # Add channel dimension
-        self.a = self.a.unsqueeze(-1)
-        self.u = self.u.unsqueeze(-1)
+        self.grid = self.grid.unsqueeze(0)
+        self.a = self.a.unsqueeze(1)
+        self.u = self.u.unsqueeze(1)
 
     def __len__(self):
         return self.n_samples
@@ -36,10 +37,9 @@ class BurgersDataset(Dataset):
     def __getitem__(self, idx):
         a_i = self.a[idx]
         u_i = self.u[idx]
-        grid_i = self.grid[0]
 
-        # Concatenate 'a' and 'grid' along the channel dimension (dim=-1)
-        x_i = torch.cat([a_i, grid_i], dim=-1)
+        # Concatenate 'a' and 'grid' along the channel dimension (dim=0) (b, c, x, y)
+        x_i = torch.cat([a_i, self.grid], dim=0)
 
         return x_i, u_i
 
@@ -67,12 +67,11 @@ class DarcyDataset(Dataset):
             torch.linspace(0, 1, self.n_y),
             indexing="ij",
         )
-        self.grid_x = grid_x.reshape(1, self.n_x, self.n_y, 1)
-        self.grid_y = grid_y.reshape(1, self.n_x, self.n_y, 1)
-
         # Add channel dimension
-        self.a = self.a.unsqueeze(-1)
-        self.u = self.u.unsqueeze(-1)
+        self.grid_x = grid_x.unsqueeze(0)
+        self.grid_y = grid_y.unsqueeze(0)
+        self.a = self.a.unsqueeze(1)
+        self.u = self.u.unsqueeze(1)
 
     def __len__(self):
         return self.n_samples
@@ -80,10 +79,9 @@ class DarcyDataset(Dataset):
     def __getitem__(self, idx):
         a_i = self.a[idx]
         u_i = self.u[idx]
-        grid_x_i = self.grid_x[0]
-        grid_y_i = self.grid_y[0]
 
-        x_i = torch.cat([a_i, grid_x_i, grid_y_i], dim=-1)
+        # Concatenate 'a' and 'grid' along the channel dimension (dim=0) (b, c, x, y)
+        x_i = torch.cat([a_i, self.grid_x, self.grid_y], dim=0)
 
         return x_i, u_i
 
@@ -135,3 +133,23 @@ def get_dataset(
         raise ValueError(f"Unknown dataset {args.dataset}")
 
     return train_dataset, test_dataset, in_channels, dim
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Process some integers.")
+    parser.add_argument("--dataset", type=str, required=True)
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--subsample", type=int, default=1)
+    parser.add_argument("--train_split", type=float, default=0.8)
+    args = parser.parse_args()
+
+    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.data_dir)
+
+    print(f"Example input: {train_dataset[0][0]}")
+    print(f"Example input shape: {train_dataset[0][0].shape}")
+    print(f"Example target: {train_dataset[0][1]}")
+    print(f"Example target shape: {train_dataset[0][1].shape}")
+    print(f"Train size: {len(train_dataset)}")
+    print(f"Test size: {len(test_dataset)}")
+    print(f"Input channels: {in_channels}")
+    print(f"Dimension: {dim}")
