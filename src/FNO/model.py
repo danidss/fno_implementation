@@ -257,7 +257,7 @@ class FNO(nn.Module):
         self,
         dim: int,
         modes: int,
-        layer_shapes: list[int],
+        layer_shapes: tuple[int],
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
