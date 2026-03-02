@@ -227,6 +227,12 @@ SKIP_CONV = {
     3: nn.Conv3d,
 }
 
+BATCH_NORM = {
+    1: nn.BatchNorm1d,
+    2: nn.BatchNorm2d,
+    3: nn.BatchNorm3d,
+}
+
 
 class FourierLayer(nn.Module):
     """ """
@@ -242,11 +248,12 @@ class FourierLayer(nn.Module):
 
         self.skip_weight = SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
         self.conv = SPECTRAL_CONV[dim](in_channels, out_channels, *((modes,) * dim))
-        self.gelu = nn.GELU()
+        self.bn = BATCH_NORM[dim](out_channels)
+        self.relu = nn.ReLU()
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
-        return self.gelu(self.conv(vt) + self.skip_weight(vt))
+        return self.relu(self.bn(self.conv(vt) + self.skip_weight(vt)))
 
 
 class FNO(nn.Module):
