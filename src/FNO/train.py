@@ -4,55 +4,32 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.FNO.model import FNO, LpLoss
-from src.data.generate_data import DATA_DIR
 from src.data.pytorch_data import get_dataset
 
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train Fourier Neural Operator")
+    parser.add_argument("--n_samples", type=int, default=1200)
+    parser.add_argument("--train_split", type=float, default=1000 / 1200)
     parser.add_argument(
-        "--train_split",
-        type=float,
-        default=0.8,
-        help="Train/test split ratio",
+        "--dataset", type=str, default="burgers", choices=["burgers", "darcy"]
     )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="burgers",
-        choices=["burgers", "darcy"],
-        help="Dataset to train on",
-    )
-    parser.add_argument(
-        "--modes", type=int, default=16, help="Number of Fourier modes to retain"
-    )
+    parser.add_argument("--model_path", type=str, default="models/fno_burgers.pth")
+    parser.add_argument("--modes", type=int, default=16, help="Number of Fourier modes")
     parser.add_argument(
         "--width",
         type=int,
         default=64,
         help="Width (channels) of the FNO hidden layers",
     )
+    parser.add_argument("--layers", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--step_size", type=int, default=100)
+    parser.add_argument("--gamma", type=float, default=0.5)
     parser.add_argument(
-        "--layers", type=int, default=4, help="Number of Fourier layers"
-    )
-    parser.add_argument("--batch_size", type=int, default=20, help="Batch size")
-    parser.add_argument(
-        "--epochs", type=int, default=50, help="Number of epochs to train"
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=0.001, help="Initial learning rate"
-    )
-    parser.add_argument(
-        "--step_size",
-        type=int,
-        default=100,
-        help="Step size for learning rate scheduler",
-    )
-    parser.add_argument(
-        "--gamma", type=float, default=0.5, help="Gamma for learning rate scheduler"
-    )
-    parser.add_argument(
-        "--subsample", type=int, default=1, help="Spatial sub-sampling factor"
+        "--subsample", type=int, default=8, help="Spatial sub-sampling factor"
     )
     return parser
 
@@ -72,16 +49,18 @@ def train_model(
         optimizer, step_size=args.step_size, gamma=args.gamma
     )
 
+    # 4. Training Loop
+    best_val_loss = float("inf")
+
     # Use relative L2-loss over mean square error
     criterion = LpLoss(size_average=False)
 
-    epochs_pbar = tqdm(range(args.epochs), desc=f"Training FNO on {args.dataset}")
-
-    for _ in epochs_pbar:
+    for epoch in range(1, args.epochs + 1):
         model.train()
         train_l2 = 0.0
 
-        for x, y in train_loader:
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs} [Train]")
+        for x, y in pbar:
             x, y = x.to(device), y.to(device)
 
             optimizer.zero_grad()
@@ -94,11 +73,15 @@ def train_model(
 
             train_l2 += loss.item()
 
-        scheduler.step()
+            pbar.set_postfix(
+                {
+                    "Loss": f"{loss.item():.4f}",
+                }
+            )
 
         # Validation Evaluation
         model.eval()
-        test_l2 = 0.0
+        val_l2 = 0.0
 
         with torch.no_grad():
             for x, y in test_loader:
@@ -106,19 +89,21 @@ def train_model(
 
                 out = model(x)
                 loss = criterion(out, y)
-                test_l2 += loss.item()
+                val_l2 += loss.item()
 
         # Aggregate epoch metrics
         train_l2 /= len(train_loader)
-        test_l2 /= len(test_loader)
+        val_l2 /= len(test_loader)
 
-        # Dynamically update terminal metrics
-        epochs_pbar.set_postfix(
-            {
-                "Train Relative L2": f"{train_l2:.4f}",
-                "Test Relative L2": f"{test_l2:.4f}",
-            }
-        )
+        print(f"Epoch {epoch} | Train Loss: {train_l2:.6f} | Val Loss: {val_l2:.6f}")
+
+        scheduler.step()
+
+        if val_l2 < best_val_loss:
+            best_val_loss = val_l2
+            checkpoint_path = args.model_path
+            torch.save(model.state_dict(), checkpoint_path)
+            print(f"Saved new best model to {checkpoint_path}")
 
 
 def main() -> None:
@@ -128,7 +113,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_dataset, test_dataset, in_channels, dim = get_dataset(args, DATA_DIR)
+    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.n_samples)
     print(
         f"Loaded {args.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
     )
