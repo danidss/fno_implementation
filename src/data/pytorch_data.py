@@ -1,20 +1,19 @@
-import os
-import glob
+from src.data.generate_data import generate_darcy_data, generate_burgers_data
+
 import argparse
-import h5py
 import torch
 from torch.utils.data import Dataset
 
 
 class BurgersDataset(Dataset):
-    def __init__(self, data_path: str, subsample: int = 1) -> None:
+    def __init__(self, n_samples: int, subsample: int = 1) -> None:
         super().__init__()
         self.subsample = subsample
 
-        with h5py.File(data_path, "r") as f:
-            # a is the initial condition, u is the solution
-            self.a = torch.tensor(f["a"][:], dtype=torch.float32)
-            self.u = torch.tensor(f["u"][:], dtype=torch.float32)
+        data = generate_burgers_data(n_samples=n_samples)
+
+        self.a = torch.tensor(data["a"], dtype=torch.float32)
+        self.u = torch.tensor(data["u"], dtype=torch.float32)
 
         # Spatial Sub-sampling
         if self.subsample > 1:
@@ -45,14 +44,14 @@ class BurgersDataset(Dataset):
 
 
 class DarcyDataset(Dataset):
-    def __init__(self, data_path, subsample=1):
+    def __init__(self, n_samples: int, subsample: int = 1) -> None:
         super().__init__()
         self.subsample = subsample
 
-        with h5py.File(data_path, "r") as f:
-            # a: (N, X, Y) coefficient, u: (N, X, Y) solution
-            self.a = torch.tensor(f["a"][:], dtype=torch.float32)
-            self.u = torch.tensor(f["u"][:], dtype=torch.float32)
+        data = generate_darcy_data(n_samples=n_samples)
+
+        self.a = torch.tensor(data["a"], dtype=torch.float32)
+        self.u = torch.tensor(data["u"], dtype=torch.float32)
 
         # Spatial Sub-sampling
         if self.subsample > 1:
@@ -87,16 +86,10 @@ class DarcyDataset(Dataset):
 
 
 def get_dataset(
-    args: argparse.Namespace, data_dir: str
+    args: argparse.Namespace, n_samples: int = 1000
 ) -> tuple[Dataset, Dataset, int, int]:
     if args.dataset == "burgers":
-        files = glob.glob(os.path.join(data_dir, "burgers_*.h5"))
-        if not files:
-            raise FileNotFoundError(
-                "Burgers data not found. Please run generate_data.py first."
-            )
-
-        dataset = BurgersDataset(files[0], subsample=args.subsample)
+        dataset = BurgersDataset(n_samples=n_samples, subsample=args.subsample)
         train_size = int(args.train_split * len(dataset))
         test_size = len(dataset) - train_size
         train_dataset, test_dataset = torch.utils.data.random_split(
@@ -110,13 +103,7 @@ def get_dataset(
         dim = 1
 
     elif args.dataset == "darcy":
-        files = glob.glob(os.path.join(data_dir, "darcy_*.h5"))
-        if not files:
-            raise FileNotFoundError(
-                "Darcy Flow data not found. Please run generate_data.py first."
-            )
-
-        dataset = DarcyDataset(files[0], subsample=args.subsample)
+        dataset = DarcyDataset(n_samples=n_samples, subsample=args.subsample)
         train_size = int(args.train_split * len(dataset))
         test_size = len(dataset) - train_size
         train_dataset, test_dataset = torch.utils.data.random_split(
@@ -138,12 +125,12 @@ def get_dataset(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some integers.")
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--n_samples", type=int, default=1000)
     parser.add_argument("--subsample", type=int, default=1)
     parser.add_argument("--train_split", type=float, default=0.8)
     args = parser.parse_args()
 
-    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.data_dir)
+    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.n_samples)
 
     print(f"Example input: {train_dataset[0][0]}")
     print(f"Example input shape: {train_dataset[0][0].shape}")
