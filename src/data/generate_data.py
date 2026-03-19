@@ -321,12 +321,3 @@ def generate_navier_stokes_data(
     return {"a": a_data, "u": u_data}
 
 
-if __name__ == "__main__":
-    print("Generating Burgers' data...")
-    generate_burgers_data(n_samples=1000)
-
-    print("Generating Darcy Flow data...")
-    generate_darcy_data(n_samples=1000)
-
-    print("Generating Navier-Stokes data...")
-    generate_navier_stokes_data(n_samples=100)

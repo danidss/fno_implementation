@@ -10,12 +10,6 @@ Each dataset returns batches with keys "x" (input) and "y" (target/solution).
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
-import torch
-from src.data.generate_data import (
-    generate_darcy_data,
-    generate_burgers_data,
-    generate_navier_stokes_data,
-)
 
 
 def visualize_navier_stokes_samples(data, n_samples=3, cmap="RdBu_r"):
@@ -314,33 +308,3 @@ def visualize_darcy_statistics(data, cmap="inferno"):
     plt.show()
 
 
-# ---------------------------------------------------------------------------
-# Main — generate data and visualise
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    # ---- Darcy Flow -------------------------------------------------------
-    print("Loading Darcy Flow data …")
-    darcy = generate_darcy_data(
-        n_samples=100,
-    )
-    visualize_darcy_samples(darcy, n_samples=5)
-    visualize_darcy_statistics(darcy)
-
-    # ---- Burgers 1D -------------------------------------------------------
-    print("Loading Burgers 1-D data …")
-    burgers = generate_burgers_data(
-        n_samples=100,
-    )
-    visualize_burgers_samples(burgers, n_samples=5)
-    visualize_burgers_comparison(burgers, n_samples=5)
-    visualize_burgers_statistics(burgers)
-
-    # # ---- Navier-Stokes ----------------------------------------------------
-    # print("Loading Navier-Stokes data …")
-    # ns = generate_navier_stokes_data(
-    #     n_samples=100,
-    # )
-    # visualize_navier_stokes_samples(ns, n_samples=3)
-    # visualize_navier_stokes_difference(ns, n_samples=3)
-    # visualize_navier_stokes_statistics(ns)

@@ -5,7 +5,6 @@ import torch.fft as fft
 
 # TODO check better contiguous allocation for the matrix
 # multiplication instead of one einsum for each corner
-# TODO check if we can compute only the needed modes instead of all the fft
 # TODO check if we can optimize the padding / zeros creation
 
 

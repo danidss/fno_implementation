@@ -1,45 +1,19 @@
-import argparse
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.FNO.model import FNO, LpLoss
-from src.data.pytorch_data import get_dataset
-
-
-def get_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train Fourier Neural Operator")
-    parser.add_argument("--n_samples", type=int, default=1200)
-    parser.add_argument("--train_split", type=float, default=1000 / 1200)
-    parser.add_argument(
-        "--dataset", type=str, default="burgers", choices=["burgers", "darcy"]
-    )
-    parser.add_argument("--model_path", type=str, default="models/fno_burgers.pth")
-    parser.add_argument("--modes", type=int, default=16, help="Number of Fourier modes")
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=64,
-        help="Width (channels) of the FNO hidden layers",
-    )
-    parser.add_argument("--layers", type=int, default=4)
-    parser.add_argument("--batch_size", type=int, default=20)
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--step_size", type=int, default=100)
-    parser.add_argument("--gamma", type=float, default=0.5)
-    parser.add_argument(
-        "--subsample", type=int, default=8, help="Spatial sub-sampling factor"
-    )
-    return parser
+from src.FNO.model import LpLoss
+from src.utils import check_and_save_checkpoint
 
 
 def train_model(
-    args: argparse.Namespace,
+    args,
     model: torch.nn.Module,
     train_loader: DataLoader,
     test_loader: DataLoader,
     device: torch.device,
+    dim: int,
+    in_channels: int,
 ) -> None:
     # Standard configuration from the paper
     optimizer = torch.optim.Adam(
@@ -99,40 +73,21 @@ def train_model(
 
         scheduler.step()
 
-        if val_l2 < best_val_loss:
-            best_val_loss = val_l2
-            checkpoint_path = args.model_path
-            torch.save(model.state_dict(), checkpoint_path)
-            print(f"Saved new best model to {checkpoint_path}")
-
-
-def main() -> None:
-    parser = get_parser()
-    args = parser.parse_args()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.n_samples)
-    print(
-        f"Loaded {args.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
-    )
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
-
-    layer_shapes = (args.width,) * args.layers
-
-    model = FNO(
-        dim=dim,
-        modes=args.modes,
-        layer_shapes=layer_shapes,
-        in_channels=in_channels,
-        out_channels=1,
-    ).to(device)
-
-    train_model(args, model, train_loader, test_loader, device)
-
-
-if __name__ == "__main__":
-    main()
+        hp = {
+            "dim": dim,
+            "modes": args.modes,
+            "width": args.width,
+            "layers": args.layers,
+            "in_channels": in_channels,
+            "out_channels": 1,
+            "dataset": args.dataset,
+            "subsample": getattr(args, "subsample", 1),
+            "implementation": getattr(args, "implementation", "ours"),
+        }
+        best_val_loss = check_and_save_checkpoint(
+            val_l2=val_l2,
+            best_val_loss=best_val_loss,
+            model=model,
+            checkpoint_path=args.model_path,
+            hp=hp,
+        )

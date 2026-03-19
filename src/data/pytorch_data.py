@@ -1,6 +1,5 @@
 from src.data.generate_data import generate_darcy_data, generate_burgers_data
 
-import argparse
 import torch
 from torch.utils.data import Dataset
 
@@ -85,9 +84,7 @@ class DarcyDataset(Dataset):
         return x_i, u_i
 
 
-def get_dataset(
-    args: argparse.Namespace, n_samples: int = 1000
-) -> tuple[Dataset, Dataset, int, int]:
+def get_dataset(args, n_samples: int = 1000) -> tuple[Dataset, Dataset, int, int]:
     if args.dataset == "burgers":
         dataset = BurgersDataset(n_samples=n_samples, subsample=args.subsample)
         train_size = int(args.train_split * len(dataset))
@@ -120,23 +117,3 @@ def get_dataset(
         raise ValueError(f"Unknown dataset {args.dataset}")
 
     return train_dataset, test_dataset, in_channels, dim
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process some integers.")
-    parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--n_samples", type=int, default=1000)
-    parser.add_argument("--subsample", type=int, default=1)
-    parser.add_argument("--train_split", type=float, default=0.8)
-    args = parser.parse_args()
-
-    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.n_samples)
-
-    print(f"Example input: {train_dataset[0][0]}")
-    print(f"Example input shape: {train_dataset[0][0].shape}")
-    print(f"Example target: {train_dataset[0][1]}")
-    print(f"Example target shape: {train_dataset[0][1].shape}")
-    print(f"Train size: {len(train_dataset)}")
-    print(f"Test size: {len(test_dataset)}")
-    print(f"Input channels: {in_channels}")
-    print(f"Dimension: {dim}")
