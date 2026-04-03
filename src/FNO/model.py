@@ -214,40 +214,36 @@ class SpectralConv3d(nn.Module):
         return fft.irfftn(out_ft, s=(x.shape[-3], x.shape[-2], x.shape[-1]))
 
 
-SPECTRAL_CONV = {
-    1: SpectralConv1d,
-    2: SpectralConv2d,
-    3: SpectralConv3d,
-}
-
-SKIP_CONV = {
-    1: nn.Conv1d,
-    2: nn.Conv2d,
-    3: nn.Conv3d,
-}
-
-BATCH_NORM = {
-    1: nn.BatchNorm1d,
-    2: nn.BatchNorm2d,
-    3: nn.BatchNorm3d,
-}
-
-
 class FourierLayer(nn.Module):
     """ """
 
+    SKIP_CONV = {
+        1: nn.Conv1d,
+        2: nn.Conv2d,
+        3: nn.Conv3d,
+    }
+
+    BATCH_NORM = {
+        1: nn.BatchNorm1d,
+        2: nn.BatchNorm2d,
+        3: nn.BatchNorm3d,
+    }
+
     def __init__(
-        self, dim: int, in_channels: int, out_channels: int, modes: int
+        self,
+        dim: int,
+        in_channels: int,
+        out_channels: int,
+        modes: int,
+        spectral_conv_class: type[nn.Module],
     ) -> None:
         super().__init__()
 
-        assert dim in SPECTRAL_CONV.keys(), (
-            f"Dimension must be one of {list(SPECTRAL_CONV.keys())}"
-        )
+        assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
 
-        self.skip_weight = SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
-        self.conv = SPECTRAL_CONV[dim](in_channels, out_channels, *((modes,) * dim))
-        self.bn = BATCH_NORM[dim](out_channels)
+        self.skip_weight = self.SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
+        self.conv = spectral_conv_class(in_channels, out_channels, *((modes,) * dim))
+        self.bn = self.BATCH_NORM[dim](out_channels)
         self.relu = nn.ReLU()
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
@@ -255,28 +251,50 @@ class FourierLayer(nn.Module):
         return self.relu(self.bn(self.conv(vt) + self.skip_weight(vt)))
 
 
+SPECTRAL_CONV = {
+    1: SpectralConv1d,
+    2: SpectralConv2d,
+    3: SpectralConv3d,
+}
+
+
 class FNO(nn.Module):
     """
     """
+
+    SKIP_CONV = {
+        1: nn.Conv1d,
+        2: nn.Conv2d,
+        3: nn.Conv3d,
+    }
 
     def __init__(
         self,
         dim: int,
         modes: int,
         layer_shapes: tuple[int],
+        spectral_conv_class: type[nn.Module],
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
         super().__init__()
 
-        self.lift = SKIP_CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
+        self.lift = self.SKIP_CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
         self.fourier_layers = nn.ModuleList(
             [
-                FourierLayer(dim=dim, in_channels=in_c, out_channels=out_c, modes=modes)
+                FourierLayer(
+                    dim=dim,
+                    in_channels=in_c,
+                    out_channels=out_c,
+                    modes=modes,
+                    spectral_conv_class=spectral_conv_class,
+                )
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
             ]
         )
-        self.project = SKIP_CONV[dim](layer_shapes[-1], out_channels, kernel_size=1)
+        self.project = self.SKIP_CONV[dim](
+            layer_shapes[-1], out_channels, kernel_size=1
+        )
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
