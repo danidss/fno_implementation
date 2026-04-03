@@ -2,6 +2,7 @@ import os
 import torch
 import random
 import numpy as np
+import wandb
 from collections import OrderedDict
 
 from src.FNO.model import FNO, SPECTRAL_CONV
@@ -85,6 +86,31 @@ def load_model_from_checkpoint(
     model.load_state_dict(_clean_state_dict(state_dict))
     name = model_name or model_display_name(hp.get("implementation", "ours"))
     return hp, model, name
+
+
+def load_model_from_wandb_artifact(
+    artifact_path: str,
+    device: torch.device,
+    model_name: str | None = None,
+    download_dir: str = ".wandb_artifacts",
+) -> tuple[dict, torch.nn.Module, str]:
+    """Downloads a model artifact from W&B and loads it as a local checkpoint."""
+    api = wandb.Api()
+    artifact = api.artifact(artifact_path, type="model")
+    artifact_dir = artifact.download(root=download_dir)
+
+    checkpoint_candidates = [
+        os.path.join(artifact_dir, filename)
+        for filename in os.listdir(artifact_dir)
+        if filename.endswith((".pth", ".pt"))
+    ]
+    if not checkpoint_candidates:
+        raise FileNotFoundError(
+            f"No checkpoint file found in artifact '{artifact_path}' at '{artifact_dir}'"
+        )
+
+    checkpoint_path = sorted(checkpoint_candidates)[0]
+    return load_model_from_checkpoint(checkpoint_path, device, model_name)
 
 
 def init_our_fno(hp: dict, device: torch.device) -> FNO:

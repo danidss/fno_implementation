@@ -11,7 +11,7 @@ data:
 
 model:
   implementation: ours
-  model_path: models/fno_burgers.pth
+  models_folder: models
   modes: 16
   width: 64
   layers: 4
@@ -26,7 +26,7 @@ training:
 
 wandb:
   project: fno-training
-  entity: null
+  entity: danidss-imperial-college-london
   run_name: null
   mode: online
 

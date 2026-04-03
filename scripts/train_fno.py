@@ -1,3 +1,5 @@
+import os
+
 import hydra
 import torch
 import wandb
@@ -12,6 +14,9 @@ from src.utils import set_seed, init_model
 @hydra.main(version_base=None, config_path="../configs", config_name="train_fno")
 def main(cfg: DictConfig) -> None:
     set_seed(cfg.seed)
+
+    if not cfg.wandb.run_name:
+        raise ValueError("wandb.run_name must be set to save checkpoints and artifacts")
 
     run_config = OmegaConf.to_container(cfg, resolve=True)
     if not isinstance(run_config, dict):
@@ -60,10 +65,25 @@ def main(cfg: DictConfig) -> None:
         "implementation": cfg.model.implementation,
     }
 
+    checkpoint_path = os.path.join(
+        cfg.model.models_folder,
+        f"{cfg.wandb.run_name}.pth",
+    )
+
     model = init_model(hp, device)
 
     try:
-        train_model(cfg, model, train_loader, test_loader, device, dim, in_channels)
+        train_model(
+            cfg,
+            model,
+            train_loader,
+            test_loader,
+            device,
+            dim,
+            in_channels,
+            checkpoint_path=checkpoint_path,
+            artifact_name=cfg.wandb.run_name,
+        )
     finally:
         wandb.finish()
 

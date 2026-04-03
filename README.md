@@ -156,7 +156,7 @@ python -m scripts.train_fno \
 - `training.epochs`: Number of epochs
 - `wandb.mode`: Set to `disabled` for offline runs
 
-**Output**: Model checkpoint saved to path in `model.model_path` (default: `models/fno_burgers.pth`).
+**Output**: Best model checkpoint saved in `model.models_folder` with filename `<wandb.run_name>.pth` (default: `models/fno_burgers.pth`).
 
 ### 5. Evaluate Models
 

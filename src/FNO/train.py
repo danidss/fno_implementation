@@ -5,6 +5,7 @@ from tqdm import tqdm
 
 from src.FNO.model import LpLoss
 from src.utils import check_and_save_checkpoint
+from src.eval.evaluate import evaluate_model
 
 
 def train_model(
@@ -15,6 +16,8 @@ def train_model(
     device: torch.device,
     dim: int,
     in_channels: int,
+    checkpoint_path: str,
+    artifact_name: str,
 ) -> None:
     # Standard configuration from the paper
     optimizer = torch.optim.Adam(
@@ -59,32 +62,22 @@ def train_model(
             )
 
         # Validation Evaluation
-        model.eval()
-        val_l2 = 0.0
 
-        with torch.no_grad():
-            for x, y in test_loader:
-                x, y = x.to(device), y.to(device)
-
-                out = model(x)
-                loss = criterion(out, y)
-                val_l2 += loss.item()
-
-        # Aggregate epoch metrics
-        train_l2 /= len(train_loader)
-        val_l2 /= len(test_loader)
-        current_lr = scheduler.get_last_lr()[0]
+        val_results = evaluate_model(model, test_loader, device)
 
         wandb.log(
             {
-                "epoch": epoch,
-                "train/l2": train_l2,
-                "val/l2": val_l2,
-                "train/lr": current_lr,
-            }
+                "train_loss": train_l2 / len(train_loader.dataset),
+                "val_rel_l2": val_results["rel_l2"],
+                "val_mse": val_results["mse"],
+                "val_mae": val_results["mae"],
+            },
+            step=epoch,
         )
 
-        print(f"Epoch {epoch} | Train Loss: {train_l2:.6f} | Val Loss: {val_l2:.6f}")
+        print(
+            f"Epoch {epoch} | Train Loss: {train_l2:.6f} | Val Loss: {val_results['rel_l2']:.6f}"
+        )
 
         scheduler.step()
 
@@ -99,10 +92,25 @@ def train_model(
             "subsample": cfg.data.subsample,
             "implementation": cfg.model.implementation,
         }
+        prev_best_val_loss = best_val_loss
         best_val_loss = check_and_save_checkpoint(
-            val_l2=val_l2,
+            val_l2=val_results["rel_l2"],
             best_val_loss=best_val_loss,
             model=model,
-            checkpoint_path=cfg.model.model_path,
+            checkpoint_path=checkpoint_path,
             hp=hp,
         )
+
+        if best_val_loss < prev_best_val_loss:
+            artifact = wandb.Artifact(
+                name=artifact_name,
+                type="model",
+                metadata={
+                    "best_val_rel_l2": best_val_loss,
+                    "epoch": epoch,
+                    "dataset": cfg.data.dataset,
+                    "implementation": cfg.model.implementation,
+                },
+            )
+            artifact.add_file(checkpoint_path)
+            wandb.log_artifact(artifact, aliases=["best", "latest"])
