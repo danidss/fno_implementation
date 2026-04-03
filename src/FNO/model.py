@@ -223,12 +223,6 @@ class FourierLayer(nn.Module):
         3: nn.Conv3d,
     }
 
-    BATCH_NORM = {
-        1: nn.BatchNorm1d,
-        2: nn.BatchNorm2d,
-        3: nn.BatchNorm3d,
-    }
-
     def __init__(
         self,
         dim: int,
@@ -236,6 +230,7 @@ class FourierLayer(nn.Module):
         out_channels: int,
         modes: int,
         spectral_conv_class: type[nn.Module],
+        norm_class: type[nn.Module] = None,
     ) -> None:
         super().__init__()
 
@@ -243,12 +238,15 @@ class FourierLayer(nn.Module):
 
         self.skip_weight = self.SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
         self.conv = spectral_conv_class(in_channels, out_channels, *((modes,) * dim))
-        self.bn = self.BATCH_NORM[dim](out_channels)
+        self.bn = norm_class(out_channels) if norm_class is not None else None
         self.relu = nn.ReLU()
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
-        return self.relu(self.bn(self.conv(vt) + self.skip_weight(vt)))
+        x = self.conv(vt) + self.skip_weight(vt)
+        if self.bn is not None:
+            x = self.bn(x)
+        return self.relu(x)
 
 
 SPECTRAL_CONV = {
@@ -274,6 +272,7 @@ class FNO(nn.Module):
         modes: int,
         layer_shapes: tuple[int],
         spectral_conv_class: type[nn.Module],
+        norm_class: type[nn.Module] = None,
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
@@ -288,6 +287,7 @@ class FNO(nn.Module):
                     out_channels=out_c,
                     modes=modes,
                     spectral_conv_class=spectral_conv_class,
+                    norm_class=norm_class,
                 )
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
             ]

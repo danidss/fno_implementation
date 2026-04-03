@@ -96,6 +96,7 @@ def init_our_fno(hp: dict, device: torch.device) -> FNO:
         modes=hp["modes"],
         layer_shapes=layer_shapes,
         spectral_conv_class=SPECTRAL_CONV[dim],
+        norm_class=hp.get("norm_class", None),
         in_channels=hp["in_channels"],
         out_channels=1,
     ).to(device)

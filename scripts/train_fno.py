@@ -65,6 +65,7 @@ def main() -> None:
         "layers": args.layers,
         "in_channels": in_channels,
         "out_channels": 1,
+        "norm_class": None,
         "dataset": args.dataset,
         "subsample": getattr(args, "subsample", 1),
         "implementation": args.implementation,
