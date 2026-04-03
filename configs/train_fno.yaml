@@ -1,0 +1,35 @@
+defaults:
+  - _self_
+
+seed: 42
+
+data:
+  n_samples: 1200
+  train_split: 0.8333333333
+  dataset: burgers
+  subsample: 8
+
+model:
+  implementation: ours
+  model_path: models/fno_burgers.pth
+  modes: 16
+  width: 64
+  layers: 4
+
+training:
+  batch_size: 20
+  epochs: 500
+  learning_rate: 0.001
+  step_size: 100
+  gamma: 0.5
+  weight_decay: 0.0001
+
+wandb:
+  project: fno-training
+  entity: null
+  run_name: null
+  mode: online
+
+hydra:
+  job:
+    chdir: false

@@ -1,5 +1,8 @@
 torch==2.10.0
 neuraloperator
+hydra-core
+omegaconf
+wandb
 numpy
 scipy
 h5py

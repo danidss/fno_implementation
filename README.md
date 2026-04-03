@@ -130,35 +130,33 @@ python -m scripts.visualize_data --datasets navier_stokes --n_samples 50
 
 ### 4. Train FNO
 
-```bash
-# Train on Burgers' equation
-python -m scripts.train_fno --dataset burgers --epochs 500 --batch_size 20
+Training uses **Hydra** for configuration and **Weights & Biases** for experiment tracking.
 
-# Train on Darcy Flow with custom hyperparameters
+```bash
+# Default training (defined in configs/train_fno.yaml)
+python -m scripts.train_fno
+
+# Override hyperparameters via command line
 python -m scripts.train_fno \
-  --dataset darcy \
-  --modes 8 \
-  --width 32 \
-  --layers 4 \
-  --epochs 1000 \
-  --learning_rate 0.001 \
-  --model_path models/fno_darcy_custom.pth
+  data.dataset=darcy \
+  model.modes=8 \
+  model.width=32 \
+  training.epochs=1000 \
+  training.learning_rate=0.0005 \
+  wandb.project=fno-darcy-runs
 ```
 
-**Key Arguments:**
-- `--dataset {burgers, darcy}`: PDE to solve
-- `--implementation {ours, original}`: Use local FNO or `neuraloperator` FNO backend
-- `--n_samples`: Total samples to generate/use
-- `--modes`: Number of Fourier modes to retain
-- `--width`: Hidden channel width in FNO layers
-- `--layers`: Number of FNO layers
-- `--batch_size`: Training batch size
-- `--epochs`: Training epochs
-- `--learning_rate`: Adam learning rate
-- `--step_size`, `--gamma`: LR scheduler (decay every `step_size` steps by factor `gamma`)
-- `--subsample`: Spatial subsampling factor
+**Key Parameters (YAML path):**
+- `data.dataset`: {burgers, darcy} - PDE to solve
+- `data.n_samples`: Total samples to generate/use
+- `model.implementation`: {ours, original}
+- `model.modes`: Fourier modes to retain
+- `model.width`: Hidden channel width
+- `training.batch_size`: Batch size
+- `training.epochs`: Number of epochs
+- `wandb.mode`: Set to `disabled` for offline runs
 
-**Output**: Model checkpoint saved to `models/` with architecture hyperparameters.
+**Output**: Model checkpoint saved to path in `model.model_path` (default: `models/fno_burgers.pth`).
 
 ### 5. Evaluate Models
 

@@ -1,6 +1,7 @@
-import argparse
-
+import hydra
 import torch
+import wandb
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from src.FNO.train import train_model
@@ -8,72 +9,63 @@ from src.data.pytorch_data import get_dataset
 from src.utils import set_seed, init_model
 
 
-def get_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train Fourier Neural Operator")
-    parser.add_argument("--n_samples", type=int, default=1200)
-    parser.add_argument("--train_split", type=float, default=1000 / 1200)
-    parser.add_argument(
-        "--dataset", type=str, default="burgers", choices=["burgers", "darcy"]
-    )
-    parser.add_argument(
-        "--implementation",
-        type=str,
-        default="ours",
-        choices=["ours", "original"],
-    )
-    parser.add_argument("--model_path", type=str, default="models/fno_burgers.pth")
-    parser.add_argument("--modes", type=int, default=16, help="Number of Fourier modes")
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=64,
-        help="Width (channels) of the FNO hidden layers",
-    )
-    parser.add_argument("--layers", type=int, default=4)
-    parser.add_argument("--batch_size", type=int, default=20)
-    parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--step_size", type=int, default=100)
-    parser.add_argument("--gamma", type=float, default=0.5)
-    parser.add_argument(
-        "--subsample", type=int, default=8, help="Spatial sub-sampling factor"
-    )
-    return parser
+@hydra.main(version_base=None, config_path="../configs", config_name="train_fno")
+def main(cfg: DictConfig) -> None:
+    set_seed(cfg.seed)
 
+    run_config = OmegaConf.to_container(cfg, resolve=True)
+    if not isinstance(run_config, dict):
+        raise TypeError("Resolved Hydra config must be a dictionary")
 
-def main() -> None:
-    parser = get_parser()
-    args = parser.parse_args()
-
-    set_seed()
+    wandb.init(
+        project=cfg.wandb.project,
+        entity=cfg.wandb.entity,
+        name=cfg.wandb.run_name,
+        mode=cfg.wandb.mode,
+        config=run_config,
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_dataset, test_dataset, in_channels, dim = get_dataset(args, args.n_samples)
+    train_dataset, test_dataset, in_channels, dim = get_dataset(
+        cfg.data,
+        cfg.data.n_samples,
+    )
     print(
-        f"Loaded {args.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
+        f"Loaded {cfg.data.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=False,
+    )
 
     hp = {
         "dim": dim,
-        "modes": args.modes,
-        "width": args.width,
-        "layers": args.layers,
+        "modes": cfg.model.modes,
+        "width": cfg.model.width,
+        "layers": cfg.model.layers,
         "in_channels": in_channels,
         "out_channels": 1,
         "norm_class": None,
-        "dataset": args.dataset,
-        "subsample": getattr(args, "subsample", 1),
-        "implementation": args.implementation,
+        "dataset": cfg.data.dataset,
+        "subsample": cfg.data.subsample,
+        "implementation": cfg.model.implementation,
     }
 
     model = init_model(hp, device)
 
-    train_model(args, model, train_loader, test_loader, device, dim, in_channels)
+    try:
+        train_model(cfg, model, train_loader, test_loader, device, dim, in_channels)
+    finally:
+        wandb.finish()
 
 
 if __name__ == "__main__":
