@@ -2,8 +2,9 @@ import os
 import torch
 import random
 import numpy as np
+from collections import OrderedDict
 
-from src.FNO.model import FNO
+from src.FNO.model import FNO, SPECTRAL_CONV
 from src.FNO.original_model import OriginalFNO
 
 
@@ -49,28 +50,28 @@ def load_checkpoint_hyperparameters(
         raise FileNotFoundError(f"Checkpoint file not found at {checkpoint_path}")
 
     print(f"Loading checkpoint from {checkpoint_path}...")
-    checkpoint_data = torch.load(checkpoint_path, map_location=device)
+    checkpoint_data = torch.load(
+        checkpoint_path,
+        map_location=device,
+        weights_only=False,
+    )
 
     if isinstance(checkpoint_data, dict) and "hyperparameters" in checkpoint_data:
         hp = checkpoint_data["hyperparameters"]
         print("Loaded hyperparameters from checkpoint.")
         return hp, checkpoint_data
     else:
-        print(
-            f"Warning: No hyperparameters found in checkpoint {checkpoint_path}. Using defaults."
+        raise ValueError(
+            "Checkpoint does not contain 'hyperparameters'. Cannot proceed with loading."
         )
-        # Fallback defaults, mainly for `fno_burgers.pth` which was saved before HPs were included.
-        hp = {
-            "dim": 1,
-            "modes": 16,
-            "width": 64,
-            "layers": 4,
-            "in_channels": 2,
-            "dataset": "burgers",
-            "subsample": 1,
-            "implementation": "ours",
-        }
-        return hp, checkpoint_data
+
+
+def _clean_state_dict(state_dict: dict) -> dict:
+    if isinstance(state_dict, dict) and "_metadata" in state_dict:
+        return OrderedDict(
+            (key, value) for key, value in state_dict.items() if key != "_metadata"
+        )
+    return state_dict
 
 
 def load_model_from_checkpoint(
@@ -80,18 +81,21 @@ def load_model_from_checkpoint(
 ) -> tuple[dict, torch.nn.Module, str]:
     hp, checkpoint_data = load_checkpoint_hyperparameters(checkpoint_path, device)
     model = init_model(hp, device)
-    model.load_state_dict(checkpoint_data.get("model_state_dict", checkpoint_data))
+    state_dict = checkpoint_data.get("model_state_dict", checkpoint_data)
+    model.load_state_dict(_clean_state_dict(state_dict))
     name = model_name or model_display_name(hp.get("implementation", "ours"))
     return hp, model, name
 
 
 def init_our_fno(hp: dict, device: torch.device) -> FNO:
     """Initializes Our FNO model based on hyperparameters."""
+    dim = hp["dim"]
     layer_shapes = (hp["width"],) * hp["layers"]
     model = FNO(
-        dim=hp["dim"],
+        dim=dim,
         modes=hp["modes"],
         layer_shapes=layer_shapes,
+        spectral_conv_class=SPECTRAL_CONV[dim],
         in_channels=hp["in_channels"],
         out_channels=1,
     ).to(device)
