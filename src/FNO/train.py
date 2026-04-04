@@ -17,7 +17,6 @@ def train_model(
     dim: int,
     in_channels: int,
     checkpoint_path: str,
-    artifact_name: str,
 ) -> None:
     # Standard configuration from the paper
     optimizer = torch.optim.Adam(
@@ -92,7 +91,6 @@ def train_model(
             "subsample": cfg.data.subsample,
             "implementation": cfg.model.implementation,
         }
-        prev_best_val_loss = best_val_loss
         best_val_loss = check_and_save_checkpoint(
             val_l2=val_results["rel_l2"],
             best_val_loss=best_val_loss,
@@ -100,17 +98,3 @@ def train_model(
             checkpoint_path=checkpoint_path,
             hp=hp,
         )
-
-        if best_val_loss < prev_best_val_loss:
-            artifact = wandb.Artifact(
-                name=artifact_name,
-                type="model",
-                metadata={
-                    "best_val_rel_l2": best_val_loss,
-                    "epoch": epoch,
-                    "dataset": cfg.data.dataset,
-                    "implementation": cfg.model.implementation,
-                },
-            )
-            artifact.add_file(checkpoint_path)
-            wandb.log_artifact(artifact, aliases=["best", "latest"])

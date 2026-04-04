@@ -8,7 +8,8 @@ from torch.utils.data import DataLoader
 
 from src.FNO.train import train_model
 from src.data.pytorch_data import get_dataset
-from src.utils import set_seed, init_model
+from src.eval.evaluate import generate_prediction_plots
+from src.utils import set_seed, init_model, load_model_from_checkpoint
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train_fno")
@@ -82,9 +83,41 @@ def main(cfg: DictConfig) -> None:
             dim,
             in_channels,
             checkpoint_path=checkpoint_path,
-            artifact_name=cfg.wandb.run_name,
         )
     finally:
+        if os.path.exists(checkpoint_path) and cfg.wandb.mode not in {
+            "disabled",
+            "offline",
+        }:
+            artifact = wandb.Artifact(name=cfg.wandb.run_name, type="model")
+            artifact.add_file(checkpoint_path)
+            wandb.log_artifact(artifact, aliases=["best", "latest"])
+
+            try:
+                _, best_model, _ = load_model_from_checkpoint(
+                    checkpoint_path,
+                    device,
+                    model_name="best_model",
+                )
+                plot_paths = generate_prediction_plots(
+                    model=best_model,
+                    test_dataset=test_dataset,
+                    dataset_name=cfg.data.dataset,
+                    dim=dim,
+                    device=device,
+                    n_plots=3,
+                    model_name="best_model",
+                )
+
+                plot_images = [
+                    wandb.Image(path, caption=f"Best model {os.path.basename(path)}")
+                    for path in plot_paths
+                ]
+
+                if plot_images:
+                    wandb.log({"eval/prediction_plots": plot_images})
+            except Exception as exc:
+                print(f"Warning: failed to generate/upload evaluation plots: {exc}")
         wandb.finish()
 
 

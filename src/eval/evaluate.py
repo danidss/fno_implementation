@@ -92,10 +92,10 @@ def plot_prediction(
         plt.legend()
         plt.grid(True, alpha=0.3)
         filename = model_name.replace(" ", "_").replace("'", "").lower()
-        plt.savefig(
-            f"plots/eval_{dataset_name}_1d_{filename}_sample{sample_idx}.png", dpi=150
-        )
+        output_path = f"plots/eval_{dataset_name}_1d_{filename}_sample{sample_idx}.png"
+        plt.savefig(output_path, dpi=150)
         plt.close()
+        return output_path
     elif dim == 2:
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         y_true = sample_y[0].cpu().numpy()
@@ -118,10 +118,11 @@ def plot_prediction(
         )
         plt.tight_layout()
         filename = model_name.replace(" ", "_").replace("'", "").lower()
-        plt.savefig(
-            f"plots/eval_{dataset_name}_2d_{filename}_sample{sample_idx}.png", dpi=150
-        )
+        output_path = f"plots/eval_{dataset_name}_2d_{filename}_sample{sample_idx}.png"
+        plt.savefig(output_path, dpi=150)
         plt.close()
+        return output_path
+    return None
 
 
 def plot_models_comparison(
@@ -163,11 +164,10 @@ def plot_models_comparison(
         plt.grid(True, alpha=0.3)
         filename1 = name1.replace(" ", "_").replace("'", "").lower()
         filename2 = name2.replace(" ", "_").replace("'", "").lower()
-        plt.savefig(
-            f"plots/eval_{dataset_name}_1d_compare_{filename1}_{filename2}_sample{sample_idx}.png",
-            dpi=150,
-        )
+        output_path = f"plots/eval_{dataset_name}_1d_compare_{filename1}_{filename2}_sample{sample_idx}.png"
+        plt.savefig(output_path, dpi=150)
         plt.close()
+        return output_path
     elif dim == 2:
         fig, axes = plt.subplots(1, 4, figsize=(20, 5))
         y_true = sample_y[0].cpu().numpy()
@@ -196,11 +196,47 @@ def plot_models_comparison(
         plt.tight_layout()
         filename1 = name1.replace(" ", "_").replace("'", "").lower()
         filename2 = name2.replace(" ", "_").replace("'", "").lower()
-        plt.savefig(
-            f"plots/eval_{dataset_name}_2d_compare_{filename1}_{filename2}_sample{sample_idx}.png",
-            dpi=150,
-        )
+        output_path = f"plots/eval_{dataset_name}_2d_compare_{filename1}_{filename2}_sample{sample_idx}.png"
+        plt.savefig(output_path, dpi=150)
         plt.close()
+        return output_path
+    return None
+
+
+def generate_prediction_plots(
+    model: torch.nn.Module,
+    test_dataset,
+    dataset_name: str,
+    dim: int,
+    device: torch.device,
+    n_plots: int = 3,
+    model_name: str = "Model",
+) -> list[str]:
+    """Generates prediction plots and returns the list of saved image paths."""
+    model.eval()
+    saved_paths = []
+
+    n_plots_actual = min(n_plots, len(test_dataset))
+    for idx in range(n_plots_actual):
+        sample_x, sample_y = test_dataset[idx]
+        sample_x_batch = sample_x.unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            pred = model(sample_x_batch).squeeze(0).cpu()
+
+        path = plot_prediction(
+            dataset_name,
+            dim,
+            sample_x.cpu(),
+            sample_y.cpu(),
+            pred,
+            model_name=model_name,
+            sample_idx=idx,
+        )
+        if path and os.path.exists(path):
+            saved_paths.append(path)
+
+    return saved_paths
 
 
 def evaluate_models(
