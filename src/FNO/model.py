@@ -361,10 +361,8 @@ class FourierLayer(nn.Module):
         out_channels: int,
         modes: tuple[int, ...],
         norm_class: type[nn.Module] = None,
-        pointwise_hidden_dims: tuple[int, ...] = (),
-        pointwise_nonlinearity: (
-            type[nn.Module] | nn.Module | Callable[[], nn.Module]
-        ) = nn.ReLU,
+        skip_hidden_dims: tuple[int, ...] = (),
+        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
         pointwise_dropout: float = 0.0,
     ) -> None:
         super().__init__()
@@ -376,8 +374,8 @@ class FourierLayer(nn.Module):
         self.skip_weight = PointwiseMLP(
             in_channels=in_channels,
             out_channels=out_channels,
-            hidden_dims=pointwise_hidden_dims,
-            nonlinearity=pointwise_nonlinearity,
+            hidden_dims=skip_hidden_dims,
+            nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
         self.conv = SpectralConv.create(in_channels, out_channels, modes)
@@ -403,14 +401,14 @@ class FNO(nn.Module):
     def __init__(
         self,
         modes: tuple[int, ...],
+        in_channels: int,
+        out_channels: int,
         layer_shapes: tuple[int],
         norm_class: type[nn.Module] = None,
-        in_channels: int = 1,
-        out_channels: int = 1,
-        pointwise_hidden_dims: tuple[int, ...] = (),
-        pointwise_nonlinearity: (
-            type[nn.Module] | nn.Module | Callable[[], nn.Module]
-        ) = nn.ReLU,
+        lift_hidden_dims: tuple[int, ...] = (),
+        projection_hidden_dims: tuple[int, ...] = (),
+        skip_hidden_dims: tuple[int, ...] = (),
+        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
         pointwise_dropout: float = 0.0,
     ) -> None:
         """
@@ -422,6 +420,10 @@ class FNO(nn.Module):
             norm_class: Normalization layer type (optional).
             in_channels: Number of input features.
             out_channels: Number of output features.
+            lift_hidden_dims: Hidden channel sizes for pointwise lift MLP.
+            projection_hidden_dims: Hidden channel sizes for pointwise projection MLP.
+            skip_hidden_dims: Hidden channel sizes for each Fourier-layer pointwise skip MLP.
+            nonlinearity: Nonlinear activation used in all pointwise MLPs.
         """
         super().__init__()
 
@@ -431,8 +433,8 @@ class FNO(nn.Module):
         self.lift = PointwiseMLP(
             in_channels=in_channels,
             out_channels=layer_shapes[0],
-            hidden_dims=(),
-            nonlinearity=pointwise_nonlinearity,
+            hidden_dims=lift_hidden_dims,
+            nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
         self.fourier_layers = nn.ModuleList(
@@ -442,8 +444,8 @@ class FNO(nn.Module):
                     out_channels=out_c,
                     modes=modes,
                     norm_class=norm_class,
-                    pointwise_hidden_dims=pointwise_hidden_dims,
-                    pointwise_nonlinearity=pointwise_nonlinearity,
+                    skip_hidden_dims=skip_hidden_dims,
+                    nonlinearity=nonlinearity,
                     pointwise_dropout=pointwise_dropout,
                 )
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
@@ -452,8 +454,8 @@ class FNO(nn.Module):
         self.project = PointwiseMLP(
             in_channels=layer_shapes[-1],
             out_channels=out_channels,
-            hidden_dims=(),
-            nonlinearity=pointwise_nonlinearity,
+            hidden_dims=projection_hidden_dims,
+            nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
 

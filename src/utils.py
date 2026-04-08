@@ -119,10 +119,10 @@ def init_our_fno(hp: dict, device: torch.device) -> FNO:
     layer_shapes = (hp["width"],) * hp["layers"]
     model = FNO(
         modes=modes,
-        layer_shapes=layer_shapes,
-        norm_class=hp.get("norm_class", None),
         in_channels=hp["in_channels"],
         out_channels=1,
+        layer_shapes=layer_shapes,
+        norm_class=hp.get("norm_class", None),
     ).to(device)
     return model
 
