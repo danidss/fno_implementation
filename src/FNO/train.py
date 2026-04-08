@@ -18,6 +18,19 @@ def train_model(
     in_channels: int,
     checkpoint_path: str,
 ) -> None:
+    """
+    Trains the FNO model using the provided configuration and data loaders.
+
+    Args:
+        cfg: Omegaconf config object.
+        model: FNO or wrapper model.
+        train_loader: Training data generator.
+        test_loader: Validation data generator.
+        device: CPU or CUDA device.
+        dim: Dimensionality of spatial domain.
+        in_channels: Feature count of input.
+        checkpoint_path: Storage path for best model.
+    """
     # Standard configuration from the paper
     optimizer = torch.optim.Adam(
         model.parameters(),

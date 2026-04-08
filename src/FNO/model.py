@@ -9,7 +9,19 @@ import torch.fft as fft
 
 
 class SpectralConv1d(nn.Module):
+    """
+    1D Spectral Convolution layer for Fourier Neural Operators.
+    """
+
     def __init__(self, in_channels: int, out_channels: int, modes: int):
+        """
+        Initializes the 1D Spectral Convolution layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            modes: Number of low-frequency modes to retain.
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -24,6 +36,15 @@ class SpectralConv1d(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for 1D Spectral Convolution.
+
+        Args:
+            x: Input tensor of shape (batch_size, in_channels, n).
+
+        Returns:
+            Filtered output tensor of shape (batch_size, out_channels, n).
+        """
         # Shape of x: (batch_size, in_channels, n)
         batchsize = x.shape[0]
 
@@ -45,7 +66,20 @@ class SpectralConv1d(nn.Module):
 
 
 class SpectralConv2d(nn.Module):
+    """
+    2D Spectral Convolution layer for Fourier Neural Operators.
+    """
+
     def __init__(self, in_channels: int, out_channels: int, modes1: int, modes2: int):
+        """
+        Initializes the 2D Spectral Convolution layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            modes1: Number of modes to retain in the first spatial dimension.
+            modes2: Number of modes to retain in the second spatial dimension.
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -78,6 +112,15 @@ class SpectralConv2d(nn.Module):
         return torch.einsum("bixy,ioxy->boxy", input, weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for 2D Spectral Convolution.
+
+        Args:
+            x: Input tensor of shape (batch, channels, height, width).
+
+        Returns:
+            Filtered output tensor of the same spatial dimensions.
+        """
         # Shape of x: (batch_size, in_channels, n, m)
         batchsize = x.shape[0]
 
@@ -104,6 +147,10 @@ class SpectralConv2d(nn.Module):
 
 
 class SpectralConv3d(nn.Module):
+    """
+    3D Spectral Convolution layer for Fourier Neural Operators.
+    """
+
     def __init__(
         self,
         in_channels: int,
@@ -112,6 +159,14 @@ class SpectralConv3d(nn.Module):
         modes2: int,
         modes3: int,
     ):
+        """
+        Initializes the 3D Spectral Convolution layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            modes1, modes2, modes3: Number of modes to retain in each spatial dimension.
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -179,6 +234,15 @@ class SpectralConv3d(nn.Module):
         return torch.einsum("bixyz,ioxyz->boxyz", input, weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for 3D Spectral Convolution.
+
+        Args:
+            x: Input tensor of shape (batch, channels, d, h, w).
+
+        Returns:
+            Filtered output tensor.
+        """
         # Shape of x: (batch_size, in_channels, n, m, p)
         batchsize = x.shape[0]
 
@@ -215,9 +279,11 @@ class SpectralConv3d(nn.Module):
 
 
 class FourierLayer(nn.Module):
-    """ """
+    """
+    A single Fourier Layer containing spectral convolution and skip connection.
+    """
 
-    SKIP_CONV = {
+    CONV = {
         1: nn.Conv1d,
         2: nn.Conv2d,
         3: nn.Conv3d,
@@ -236,7 +302,7 @@ class FourierLayer(nn.Module):
 
         assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
 
-        self.skip_weight = self.SKIP_CONV[dim](in_channels, out_channels, kernel_size=1)
+        self.skip_weight = self.CONV[dim](in_channels, out_channels, kernel_size=1)
         self.conv = spectral_conv_class(in_channels, out_channels, *((modes,) * dim))
         self.bn = norm_class(out_channels) if norm_class is not None else None
         self.relu = nn.ReLU()
@@ -258,9 +324,13 @@ SPECTRAL_CONV = {
 
 class FNO(nn.Module):
     """
+    Fourier Neural Operator architecture for solving PDEs.
+
+    Lifts input to a higher-dimensional latent space, passes it through sequential
+    Fourier layers, and projects back to the target output space.
     """
 
-    SKIP_CONV = {
+    CONV = {
         1: nn.Conv1d,
         2: nn.Conv2d,
         3: nn.Conv3d,
@@ -276,9 +346,21 @@ class FNO(nn.Module):
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
+        """
+        Initializes the FNO model.
+
+        Args:
+            dim: Spatial dimensionality (1, 2, or 3).
+            modes: Number of Fourier modes to keep.
+            layer_shapes: List of channel dimensions for Fourier layers.
+            spectral_conv_class: Type of spectral conv (e.g., SpectralConv2d).
+            norm_class: Normalization layer type (optional).
+            in_channels: Number of input features.
+            out_channels: Number of output features.
+        """
         super().__init__()
 
-        self.lift = self.SKIP_CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
+        self.lift = self.CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
         self.fourier_layers = nn.ModuleList(
             [
                 FourierLayer(
@@ -292,9 +374,7 @@ class FNO(nn.Module):
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
             ]
         )
-        self.project = self.SKIP_CONV[dim](
-            layer_shapes[-1], out_channels, kernel_size=1
-        )
+        self.project = self.CONV[dim](layer_shapes[-1], out_channels, kernel_size=1)
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
@@ -322,6 +402,16 @@ class LpLoss:
         self.size_average = size_average
 
     def rel(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        Calculates the relative p-norm loss.
+
+        Args:
+            x: Predicted tensor.
+            y: Ground truth tensor.
+
+        Returns:
+            Computed relative loss as a scalar or per-sample tensor.
+        """
         # x: prediction, y: ground truth
         dims = tuple(range(1, x.ndim))
 

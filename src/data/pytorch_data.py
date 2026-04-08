@@ -5,7 +5,21 @@ from torch.utils.data import Dataset
 
 
 class BurgersDataset(Dataset):
+    """
+    PyTorch Dataset for the 1D Burgers' equation.
+
+    Loads pre-generated simulation data and appends spatial grid coordinates
+    to the input features. Optional subsampling can reduce grid resolution.
+    """
+
     def __init__(self, n_samples: int, subsample: int = 1) -> None:
+        """
+        Initializes the Burgers dataset.
+
+        Args:
+            n_samples: Number of samples to include.
+            subsample: Resolution reduction factor.
+        """
         super().__init__()
         self.subsample = subsample
 
@@ -43,7 +57,21 @@ class BurgersDataset(Dataset):
 
 
 class DarcyDataset(Dataset):
+    """
+    PyTorch Dataset for the 2D Darcy Flow equation.
+
+    Processes permeability coefficients 'a' to predict steady-state fluid flow 'u'
+    on a 2D grid, including spatial coordinates as additional input channels.
+    """
+
     def __init__(self, n_samples: int, subsample: int = 1) -> None:
+        """
+        Initializes the Darcy dataset.
+
+        Args:
+            n_samples: Number of samples to include.
+            subsample: Resolution reduction factor.
+        """
         super().__init__()
         self.subsample = subsample
 
@@ -85,6 +113,19 @@ class DarcyDataset(Dataset):
 
 
 def get_dataset(args, n_samples: int = 1000) -> tuple[Dataset, Dataset, int, int]:
+    """
+    Factory function to load and split the specified PDE dataset.
+
+    Handles configuration-driven loading for Burgers or Darcy datasets,
+    manages train/test splits with a fixed seed, and infers core metadata.
+
+    Args:
+        args: Config object with dataset and train_split.
+        n_samples: Total samples to draw.
+
+    Returns:
+        tuple: (train_dataset, test_dataset, in_channels, dim)
+    """
     if args.dataset == "burgers":
         dataset = BurgersDataset(n_samples=n_samples, subsample=args.subsample)
         train_size = int(args.train_split * len(dataset))

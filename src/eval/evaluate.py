@@ -8,6 +8,17 @@ from src.FNO.model import LpLoss
 
 
 def evaluate_model(model: torch.nn.Module, test_loader, device: torch.device):
+    """
+    Evaluates the model on test data to record error metrics and efficiency.
+
+    Args:
+        model: FNO or benchmark model.
+        test_loader: DataLoader for testing.
+        device: CPU or CUDA device.
+
+    Returns:
+        dict: Performance and error metrics.
+    """
     model.eval()
     criterion_l2 = LpLoss(size_average=True)
 

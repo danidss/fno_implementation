@@ -5,6 +5,13 @@ from neuralop.models import FNO as NeuralOperatorFNO
 
 
 class OriginalFNO(nn.Module):
+    """
+    Wrapper for the NeuralOperator library's FNO implementation.
+    
+    Used to benchmark the current implementation against a reference model, 
+    with hyperparameters configured for equivalence.
+    """
+
     def __init__(
         self,
         dim: int,
@@ -13,6 +20,16 @@ class OriginalFNO(nn.Module):
         in_channels: int = 1,
         out_channels: int = 1,
     ) -> None:
+        """
+        Initializes the reference FNO model.
+
+        Args:
+            dim: Spatial dimensionality.
+            modes: Freq modes to truncate.
+            layer_shapes: Fourier layer widths.
+            in_channels: Number of input features.
+            out_channels: Number of output features.
+        """
         super().__init__()
 
         n_modes = (modes,) * dim
