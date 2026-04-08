@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
-from typing import Type
+from copy import deepcopy
+from typing import Callable, Type
 
 
 # TODO check better contiguous allocation for the matrix
@@ -33,6 +34,56 @@ class SpectralConv(nn.Module):
             )
 
         return conv_cls(in_channels, out_channels, modes)
+
+
+class PointwiseMLP(nn.Module):
+    """MLP-like block applied pointwise over arbitrary spatial dimensions."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        hidden_dims: tuple[int, ...] = (),
+        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+
+        if dropout < 0.0 or dropout >= 1.0:
+            raise ValueError(f"dropout must be in [0, 1). Received {dropout}.")
+
+        channels = (in_channels,) + hidden_dims + (out_channels,)
+
+        layers: list[nn.Module] = []
+        for idx, (in_c, out_c) in enumerate(zip(channels[:-1], channels[1:])):
+            layers.append(nn.Linear(in_c, out_c))
+
+            if not idx == len(channels) - 2:  # No activation or dropout on last layer.
+                layers.append(self._build_activation(nonlinearity))
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
+
+        self.network = nn.Sequential(*layers)
+
+    @staticmethod
+    def _build_activation(
+        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module],
+    ) -> nn.Module:
+        if isinstance(nonlinearity, nn.Module):
+            return deepcopy(nonlinearity)
+        if isinstance(nonlinearity, type) and issubclass(nonlinearity, nn.Module):
+            return nonlinearity()
+        built = nonlinearity()
+        if not isinstance(built, nn.Module):
+            raise TypeError("nonlinearity must return an nn.Module instance.")
+        return built
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, channels, *spatial). Flatten spatial axes into tokens.
+        _, _, *spatial_shape = x.shape
+        tokens = x.flatten(start_dim=2).transpose(1, 2)  # (batch, n_tokens, channels)
+        tokens = self.network(tokens)
+        return tokens.transpose(1, 2).unflatten(2, spatial_shape)
 
 
 class SpectralConv1d(SpectralConv):
@@ -304,18 +355,17 @@ class FourierLayer(nn.Module):
     A single Fourier Layer containing spectral convolution and skip connection.
     """
 
-    CONV = {
-        1: nn.Conv1d,
-        2: nn.Conv2d,
-        3: nn.Conv3d,
-    }
-
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         modes: tuple[int, ...],
         norm_class: type[nn.Module] = None,
+        pointwise_hidden_dims: tuple[int, ...] = (),
+        pointwise_nonlinearity: (
+            type[nn.Module] | nn.Module | Callable[[], nn.Module]
+        ) = nn.ReLU,
+        pointwise_dropout: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -323,7 +373,13 @@ class FourierLayer(nn.Module):
 
         assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
 
-        self.skip_weight = self.CONV[dim](in_channels, out_channels, kernel_size=1)
+        self.skip_weight = PointwiseMLP(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            hidden_dims=pointwise_hidden_dims,
+            nonlinearity=pointwise_nonlinearity,
+            dropout=pointwise_dropout,
+        )
         self.conv = SpectralConv.create(in_channels, out_channels, modes)
         self.bn = norm_class(out_channels) if norm_class is not None else None
         self.relu = nn.ReLU()
@@ -344,12 +400,6 @@ class FNO(nn.Module):
     Fourier layers, and projects back to the target output space.
     """
 
-    CONV = {
-        1: nn.Conv1d,
-        2: nn.Conv2d,
-        3: nn.Conv3d,
-    }
-
     def __init__(
         self,
         modes: tuple[int, ...],
@@ -357,6 +407,11 @@ class FNO(nn.Module):
         norm_class: type[nn.Module] = None,
         in_channels: int = 1,
         out_channels: int = 1,
+        pointwise_hidden_dims: tuple[int, ...] = (),
+        pointwise_nonlinearity: (
+            type[nn.Module] | nn.Module | Callable[[], nn.Module]
+        ) = nn.ReLU,
+        pointwise_dropout: float = 0.0,
     ) -> None:
         """
         Initializes the FNO model.
@@ -371,8 +426,15 @@ class FNO(nn.Module):
         super().__init__()
 
         dim = len(modes)
+        assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
 
-        self.lift = self.CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
+        self.lift = PointwiseMLP(
+            in_channels=in_channels,
+            out_channels=layer_shapes[0],
+            hidden_dims=(),
+            nonlinearity=pointwise_nonlinearity,
+            dropout=pointwise_dropout,
+        )
         self.fourier_layers = nn.ModuleList(
             [
                 FourierLayer(
@@ -380,11 +442,20 @@ class FNO(nn.Module):
                     out_channels=out_c,
                     modes=modes,
                     norm_class=norm_class,
+                    pointwise_hidden_dims=pointwise_hidden_dims,
+                    pointwise_nonlinearity=pointwise_nonlinearity,
+                    pointwise_dropout=pointwise_dropout,
                 )
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
             ]
         )
-        self.project = self.CONV[dim](layer_shapes[-1], out_channels, kernel_size=1)
+        self.project = PointwiseMLP(
+            in_channels=layer_shapes[-1],
+            out_channels=out_channels,
+            hidden_dims=(),
+            nonlinearity=pointwise_nonlinearity,
+            dropout=pointwise_dropout,
+        )
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
