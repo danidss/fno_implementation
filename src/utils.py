@@ -4,9 +4,23 @@ import random
 import numpy as np
 import wandb
 from collections import OrderedDict
+from copy import deepcopy
+from typing import Callable
 
-from src.FNO.model import FNO
-from src.FNO.original_model import OriginalFNO
+
+def build_activation(
+    nonlinearity: (
+        type[torch.nn.Module] | torch.nn.Module | Callable[[], torch.nn.Module]
+    ),
+) -> torch.nn.Module:
+    if isinstance(nonlinearity, torch.nn.Module):
+        return deepcopy(nonlinearity)
+    if isinstance(nonlinearity, type) and issubclass(nonlinearity, torch.nn.Module):
+        return nonlinearity()
+    built = nonlinearity()
+    if not isinstance(built, torch.nn.Module):
+        raise TypeError("nonlinearity must return an nn.Module instance.")
+    return built
 
 
 def set_seed(seed: int = 42) -> None:
@@ -81,7 +95,32 @@ def load_model_from_checkpoint(
     model_name: str | None,
 ) -> tuple[dict, torch.nn.Module, str]:
     hp, checkpoint_data = load_checkpoint_hyperparameters(checkpoint_path, device)
-    model = init_model(hp, device)
+    implementation = hp.get("implementation", "ours")
+    modes = tuple(hp["modes"])
+    layer_shapes = (hp["width"],) * hp["layers"]
+
+    if implementation == "ours":
+        from src.FNO.model import FNO
+
+        model = FNO(
+            modes=modes,
+            in_channels=hp["in_channels"],
+            out_channels=1,
+            layer_shapes=layer_shapes,
+            norm_class=hp.get("norm_class", None),
+        ).to(device)
+    elif implementation == "original":
+        from src.FNO.original_model import OriginalFNO
+
+        model = OriginalFNO(
+            modes=modes,
+            layer_shapes=layer_shapes,
+            in_channels=hp["in_channels"],
+            out_channels=1,
+        ).to(device)
+    else:
+        raise ValueError(f"Unknown implementation '{implementation}'")
+
     state_dict = checkpoint_data.get("model_state_dict", checkpoint_data)
     model.load_state_dict(_clean_state_dict(state_dict))
     name = model_name or model_display_name(hp.get("implementation", "ours"))
@@ -111,41 +150,6 @@ def load_model_from_wandb_artifact(
 
     checkpoint_path = sorted(checkpoint_candidates)[0]
     return load_model_from_checkpoint(checkpoint_path, device, model_name)
-
-
-def init_our_fno(hp: dict, device: torch.device) -> FNO:
-    """Initializes Our FNO model based on hyperparameters."""
-    modes = tuple(hp["modes"])
-    layer_shapes = (hp["width"],) * hp["layers"]
-    model = FNO(
-        modes=modes,
-        in_channels=hp["in_channels"],
-        out_channels=1,
-        layer_shapes=layer_shapes,
-        norm_class=hp.get("norm_class", None),
-    ).to(device)
-    return model
-
-
-def init_original_fno(hp: dict, device: torch.device) -> torch.nn.Module:
-    modes = tuple(hp["modes"])
-    layer_shapes = (hp["width"],) * hp["layers"]
-    model = OriginalFNO(
-        modes=modes,
-        layer_shapes=layer_shapes,
-        in_channels=hp["in_channels"],
-        out_channels=1,
-    ).to(device)
-    return model
-
-
-def init_model(hp: dict, device: torch.device) -> torch.nn.Module:
-    implementation = hp.get("implementation", "ours")
-    if implementation == "ours":
-        return init_our_fno(hp, device)
-    if implementation == "original":
-        return init_original_fno(hp, device)
-    raise ValueError(f"Unknown implementation '{implementation}'")
 
 
 def model_display_name(implementation: str) -> str:

@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
-from copy import deepcopy
 from typing import Callable, Type
+
+from src.utils import build_activation
 
 
 # TODO check better contiguous allocation for the matrix
@@ -59,24 +60,11 @@ class PointwiseMLP(nn.Module):
             layers.append(nn.Linear(in_c, out_c))
 
             if not idx == len(channels) - 2:  # No activation or dropout on last layer.
-                layers.append(self._build_activation(nonlinearity))
+                layers.append(build_activation(nonlinearity))
                 if dropout > 0:
                     layers.append(nn.Dropout(dropout))
 
         self.network = nn.Sequential(*layers)
-
-    @staticmethod
-    def _build_activation(
-        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module],
-    ) -> nn.Module:
-        if isinstance(nonlinearity, nn.Module):
-            return deepcopy(nonlinearity)
-        if isinstance(nonlinearity, type) and issubclass(nonlinearity, nn.Module):
-            return nonlinearity()
-        built = nonlinearity()
-        if not isinstance(built, nn.Module):
-            raise TypeError("nonlinearity must return an nn.Module instance.")
-        return built
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch, channels, *spatial). Flatten spatial axes into tokens.
@@ -378,16 +366,16 @@ class FourierLayer(nn.Module):
             nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
-        self.conv = SpectralConv.create(in_channels, out_channels, modes)
+        self.spectral_conv = SpectralConv.create(in_channels, out_channels, modes)
         self.bn = norm_class(out_channels) if norm_class is not None else None
-        self.relu = nn.ReLU()
+        self.nonlinearity = build_activation(nonlinearity)
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         # vt: (batch, in_channels, *spatial)
-        x = self.conv(vt) + self.skip_weight(vt)
+        x = self.spectral_conv(vt) + self.skip_weight(vt)
         if self.bn is not None:
             x = self.bn(x)
-        return self.relu(x)
+        return self.nonlinearity(x)
 
 
 class FNO(nn.Module):

@@ -7,9 +7,11 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
 from src.FNO.train import train_model
+from src.FNO.model import FNO
+from src.FNO.original_model import OriginalFNO
 from src.data.pytorch_data import get_dataset
 from src.eval.evaluate import generate_prediction_plots
-from src.utils import set_seed, init_model, load_model_from_checkpoint
+from src.utils import set_seed, load_model_from_checkpoint
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train_fno")
@@ -70,7 +72,28 @@ def main(cfg: DictConfig) -> None:
         f"{cfg.wandb.run_name}.pth",
     )
 
-    model = init_model(hp, device)
+    # Initialize model
+    modes = tuple(hp["modes"])
+    layer_shapes = (hp["width"],) * hp["layers"]
+    implementation = hp.get("implementation", "ours")
+
+    if implementation == "ours":
+        model = FNO(
+            modes=modes,
+            in_channels=hp["in_channels"],
+            out_channels=1,
+            layer_shapes=layer_shapes,
+            norm_class=hp.get("norm_class", None),
+        ).to(device)
+    elif implementation == "original":
+        model = OriginalFNO(
+            modes=modes,
+            layer_shapes=layer_shapes,
+            in_channels=hp["in_channels"],
+            out_channels=1,
+        ).to(device)
+    else:
+        raise ValueError(f"Unknown implementation '{implementation}'")
 
     try:
         train_model(
