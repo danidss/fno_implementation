@@ -54,7 +54,6 @@ def main(cfg: DictConfig) -> None:
     )
 
     hp = {
-        "dim": dim,
         "modes": cfg.model.modes,
         "width": cfg.model.width,
         "layers": cfg.model.layers,

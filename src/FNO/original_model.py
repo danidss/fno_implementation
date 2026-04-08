@@ -14,8 +14,7 @@ class OriginalFNO(nn.Module):
 
     def __init__(
         self,
-        dim: int,
-        modes: int,
+        modes: tuple[int, ...],
         layer_shapes: tuple[int],
         in_channels: int = 1,
         out_channels: int = 1,
@@ -24,15 +23,18 @@ class OriginalFNO(nn.Module):
         Initializes the reference FNO model.
 
         Args:
-            dim: Spatial dimensionality.
-            modes: Freq modes to truncate.
+            modes: Frequency modes to truncate per dimension.
             layer_shapes: Fourier layer widths.
             in_channels: Number of input features.
             out_channels: Number of output features.
         """
         super().__init__()
 
-        n_modes = (modes,) * dim
+        if len(modes) not in (1, 2, 3):
+            raise ValueError(
+                f"Unsupported dimension inferred from modes={modes}. Expected 1D, 2D or 3D modes tuple."
+            )
+
         hidden_channels = layer_shapes[0]
         # Our FNO builds one Fourier block per adjacent pair in layer_shapes.
         # For (width,) * L this is L-1 blocks, so match that behavior here.
@@ -40,7 +42,7 @@ class OriginalFNO(nn.Module):
 
         self.model = NeuralOperatorFNO(
             # Keep the same Fourier dimensionality and channels as our implementation.
-            n_modes=n_modes,
+            n_modes=modes,
             in_channels=in_channels,
             out_channels=out_channels,
             hidden_channels=hidden_channels,
@@ -83,12 +85,8 @@ class OriginalFNO(nn.Module):
             channel_mlp_expansion=0.5,
             channel_mlp_skip="linear",
         )
-        self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.dim not in (1, 2, 3):
-            raise ValueError(f"Unsupported dimension: {self.dim}")
-
         # Our datasets and training loop use channel-first tensors:
         #   1D -> (batch, channels, x)
         #   2D -> (batch, channels, x, y)

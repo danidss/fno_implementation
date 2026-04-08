@@ -12,7 +12,7 @@ data:
 model:
   implementation: ours
   models_folder: models
-  modes: 16
+  modes: [16]
   width: 64
   layers: 4
 

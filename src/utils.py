@@ -5,7 +5,7 @@ import numpy as np
 import wandb
 from collections import OrderedDict
 
-from src.FNO.model import FNO, SPECTRAL_CONV
+from src.FNO.model import FNO
 from src.FNO.original_model import OriginalFNO
 
 
@@ -115,13 +115,11 @@ def load_model_from_wandb_artifact(
 
 def init_our_fno(hp: dict, device: torch.device) -> FNO:
     """Initializes Our FNO model based on hyperparameters."""
-    dim = hp["dim"]
+    modes = tuple(hp["modes"])
     layer_shapes = (hp["width"],) * hp["layers"]
     model = FNO(
-        dim=dim,
-        modes=hp["modes"],
+        modes=modes,
         layer_shapes=layer_shapes,
-        spectral_conv_class=SPECTRAL_CONV[dim],
         norm_class=hp.get("norm_class", None),
         in_channels=hp["in_channels"],
         out_channels=1,
@@ -130,10 +128,10 @@ def init_our_fno(hp: dict, device: torch.device) -> FNO:
 
 
 def init_original_fno(hp: dict, device: torch.device) -> torch.nn.Module:
+    modes = tuple(hp["modes"])
     layer_shapes = (hp["width"],) * hp["layers"]
     model = OriginalFNO(
-        dim=hp["dim"],
-        modes=hp["modes"],
+        modes=modes,
         layer_shapes=layer_shapes,
         in_channels=hp["in_channels"],
         out_channels=1,

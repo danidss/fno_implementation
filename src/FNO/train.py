@@ -94,7 +94,6 @@ def train_model(
         scheduler.step()
 
         hp = {
-            "dim": dim,
             "modes": cfg.model.modes,
             "width": cfg.model.width,
             "layers": cfg.model.layers,

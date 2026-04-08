@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
+from typing import Type
 
 
 # TODO check better contiguous allocation for the matrix
@@ -8,12 +9,38 @@ import torch.fft as fft
 # TODO check if we can optimize the padding / zeros creation
 
 
-class SpectralConv1d(nn.Module):
+class SpectralConv(nn.Module):
+    """Base class and factory for dimension-specific spectral convolutions."""
+
+    @classmethod
+    def create(
+        cls,
+        in_channels: int,
+        out_channels: int,
+        modes: tuple[int, ...],
+    ) -> "SpectralConv":
+        conv_cls: Type[SpectralConv]
+        dim = len(modes)
+        if dim == 1:
+            conv_cls = SpectralConv1d
+        elif dim == 2:
+            conv_cls = SpectralConv2d
+        elif dim == 3:
+            conv_cls = SpectralConv3d
+        else:
+            raise ValueError(
+                f"Unsupported dimension inferred from modes={modes}. Expected 1D, 2D or 3D."
+            )
+
+        return conv_cls(in_channels, out_channels, modes)
+
+
+class SpectralConv1d(SpectralConv):
     """
     1D Spectral Convolution layer for Fourier Neural Operators.
     """
 
-    def __init__(self, in_channels: int, out_channels: int, modes: int):
+    def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
         """
         Initializes the 1D Spectral Convolution layer.
 
@@ -27,7 +54,7 @@ class SpectralConv1d(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.modes = modes
+        self.modes = modes[0]
 
         scale = 1 / (in_channels * out_channels)
         self.weights = nn.Parameter(
@@ -65,28 +92,26 @@ class SpectralConv1d(nn.Module):
         return fft.irfft(out_ft, n=x.shape[-1])
 
 
-class SpectralConv2d(nn.Module):
+class SpectralConv2d(SpectralConv):
     """
     2D Spectral Convolution layer for Fourier Neural Operators.
     """
 
-    def __init__(self, in_channels: int, out_channels: int, modes1: int, modes2: int):
+    def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
         """
         Initializes the 2D Spectral Convolution layer.
 
         Args:
             in_channels: Number of input channels.
             out_channels: Number of output channels.
-            modes1: Number of modes to retain in the first spatial dimension.
-            modes2: Number of modes to retain in the second spatial dimension.
+            modes: Number of modes to retain in each spatial dimension.
         """
         super().__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.modes1 = modes1
-        self.modes2 = modes2
+        self.modes1, self.modes2 = modes
 
         # We initialize the weights from an uniform u_r+u_c*i
         scale = 1 / (in_channels * out_channels)
@@ -146,7 +171,7 @@ class SpectralConv2d(nn.Module):
         return fft.irfft2(out_ft, s=(x.shape[-2], x.shape[-1]))
 
 
-class SpectralConv3d(nn.Module):
+class SpectralConv3d(SpectralConv):
     """
     3D Spectral Convolution layer for Fourier Neural Operators.
     """
@@ -155,9 +180,7 @@ class SpectralConv3d(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        modes1: int,
-        modes2: int,
-        modes3: int,
+        modes: tuple[int, ...],
     ):
         """
         Initializes the 3D Spectral Convolution layer.
@@ -165,16 +188,14 @@ class SpectralConv3d(nn.Module):
         Args:
             in_channels: Number of input channels.
             out_channels: Number of output channels.
-            modes1, modes2, modes3: Number of modes to retain in each spatial dimension.
+            modes: Number of modes to retain in each spatial dimension.
         """
         super().__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
 
-        self.modes1 = modes1
-        self.modes2 = modes2
-        self.modes3 = modes3
+        self.modes1, self.modes2, self.modes3 = modes
 
         # We initialize the weights from an uniform u_r+u_c*i
         scale = 1 / (in_channels * out_channels)
@@ -291,19 +312,19 @@ class FourierLayer(nn.Module):
 
     def __init__(
         self,
-        dim: int,
         in_channels: int,
         out_channels: int,
-        modes: int,
-        spectral_conv_class: type[nn.Module],
+        modes: tuple[int, ...],
         norm_class: type[nn.Module] = None,
     ) -> None:
         super().__init__()
 
+        dim = len(modes)
+
         assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
 
         self.skip_weight = self.CONV[dim](in_channels, out_channels, kernel_size=1)
-        self.conv = spectral_conv_class(in_channels, out_channels, *((modes,) * dim))
+        self.conv = SpectralConv.create(in_channels, out_channels, modes)
         self.bn = norm_class(out_channels) if norm_class is not None else None
         self.relu = nn.ReLU()
 
@@ -313,13 +334,6 @@ class FourierLayer(nn.Module):
         if self.bn is not None:
             x = self.bn(x)
         return self.relu(x)
-
-
-SPECTRAL_CONV = {
-    1: SpectralConv1d,
-    2: SpectralConv2d,
-    3: SpectralConv3d,
-}
 
 
 class FNO(nn.Module):
@@ -338,10 +352,8 @@ class FNO(nn.Module):
 
     def __init__(
         self,
-        dim: int,
-        modes: int,
+        modes: tuple[int, ...],
         layer_shapes: tuple[int],
-        spectral_conv_class: type[nn.Module],
         norm_class: type[nn.Module] = None,
         in_channels: int = 1,
         out_channels: int = 1,
@@ -350,25 +362,23 @@ class FNO(nn.Module):
         Initializes the FNO model.
 
         Args:
-            dim: Spatial dimensionality (1, 2, or 3).
-            modes: Number of Fourier modes to keep.
+            modes: Number of Fourier modes to keep. Dimension is inferred from length of this tuple.
             layer_shapes: List of channel dimensions for Fourier layers.
-            spectral_conv_class: Type of spectral conv (e.g., SpectralConv2d).
             norm_class: Normalization layer type (optional).
             in_channels: Number of input features.
             out_channels: Number of output features.
         """
         super().__init__()
 
+        dim = len(modes)
+
         self.lift = self.CONV[dim](in_channels, layer_shapes[0], kernel_size=1)
         self.fourier_layers = nn.ModuleList(
             [
                 FourierLayer(
-                    dim=dim,
                     in_channels=in_c,
                     out_channels=out_c,
                     modes=modes,
-                    spectral_conv_class=spectral_conv_class,
                     norm_class=norm_class,
                 )
                 for in_c, out_c in zip(layer_shapes[:-1], layer_shapes[1:])
