@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
-from typing import Callable, Type
+from typing import Type
 
-from src.utils import build_activation
+from src.utils import build_activation, build_normalization
 
 
 # TODO check better contiguous allocation for the matrix
@@ -21,6 +21,16 @@ class SpectralConv(nn.Module):
         out_channels: int,
         modes: tuple[int, ...],
     ) -> "SpectralConv":
+        """Creates the dimension-specific spectral convolution implementation.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            modes: Number of retained Fourier modes per spatial dimension.
+
+        Returns:
+            An instance of `SpectralConv1d`, `SpectralConv2d`, or `SpectralConv3d`.
+        """
         conv_cls: Type[SpectralConv]
         dim = len(modes)
         if dim == 1:
@@ -45,9 +55,19 @@ class PointwiseMLP(nn.Module):
         in_channels: int,
         out_channels: int,
         hidden_dims: tuple[int, ...] = (),
-        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
+        nonlinearity: str = "relu",
         dropout: float = 0.0,
     ) -> None:
+        """Initializes the pointwise MLP.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            hidden_dims: Hidden layer channel sizes used by intermediate pointwise linear layers.
+            nonlinearity: Activation name used between hidden layers.
+                Supported values: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu".
+            dropout: Dropout rate applied after hidden activations.
+        """
         super().__init__()
 
         if dropout < 0.0 or dropout >= 1.0:
@@ -67,6 +87,14 @@ class PointwiseMLP(nn.Module):
         self.network = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies the pointwise MLP over flattened spatial tokens.
+
+        Args:
+            x: Input tensor of shape `(batch, channels, *spatial)`.
+
+        Returns:
+            Output tensor of shape `(batch, out_channels, *spatial)`.
+        """
         # x: (batch, channels, *spatial). Flatten spatial axes into tokens.
         _, _, *spatial_shape = x.shape
         tokens = x.flatten(start_dim=2).transpose(1, 2)  # (batch, n_tokens, channels)
@@ -75,9 +103,7 @@ class PointwiseMLP(nn.Module):
 
 
 class SpectralConv1d(SpectralConv):
-    """
-    1D Spectral Convolution layer for Fourier Neural Operators.
-    """
+    """1D spectral convolution layer for Fourier Neural Operators."""
 
     def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
         """
@@ -132,9 +158,7 @@ class SpectralConv1d(SpectralConv):
 
 
 class SpectralConv2d(SpectralConv):
-    """
-    2D Spectral Convolution layer for Fourier Neural Operators.
-    """
+    """2D spectral convolution layer for Fourier Neural Operators."""
 
     def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
         """
@@ -172,6 +196,15 @@ class SpectralConv2d(SpectralConv):
         )
 
     def compl_mul2d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+        """Performs complex multiplication in Fourier space for 2D tensors.
+
+        Args:
+            input: Complex input tensor in Fourier space.
+            weights: Complex learnable spectral weights.
+
+        Returns:
+            Complex output tensor after channel mixing.
+        """
         # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y' = frequency modes
         return torch.einsum("bixy,ioxy->boxy", input, weights)
 
@@ -211,9 +244,7 @@ class SpectralConv2d(SpectralConv):
 
 
 class SpectralConv3d(SpectralConv):
-    """
-    3D Spectral Convolution layer for Fourier Neural Operators.
-    """
+    """3D spectral convolution layer for Fourier Neural Operators."""
 
     def __init__(
         self,
@@ -290,6 +321,15 @@ class SpectralConv3d(SpectralConv):
         )
 
     def compl_mul3d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+        """Performs complex multiplication in Fourier space for 3D tensors.
+
+        Args:
+            input: Complex input tensor in Fourier space.
+            weights: Complex learnable spectral weights.
+
+        Returns:
+            Complex output tensor after channel mixing.
+        """
         # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y', 'z' = frequency modes
         return torch.einsum("bixyz,ioxyz->boxyz", input, weights)
 
@@ -339,20 +379,31 @@ class SpectralConv3d(SpectralConv):
 
 
 class FourierLayer(nn.Module):
-    """
-    A single Fourier Layer containing spectral convolution and skip connection.
-    """
+    """Single Fourier layer with spectral branch, pointwise skip, normalization, and activation."""
 
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         modes: tuple[int, ...],
-        norm_class: type[nn.Module] = None,
+        norm_class: str | None = None,
         skip_hidden_dims: tuple[int, ...] = (),
-        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
+        nonlinearity: str = "relu",
         pointwise_dropout: float = 0.0,
     ) -> None:
+        """Initializes the Fourier layer.
+
+        Args:
+            in_channels: Number of input channels.
+            out_channels: Number of output channels.
+            modes: Number of retained Fourier modes per spatial dimension.
+            norm_class: Normalization name applied after spectral + skip sum.
+                Supported values: "none", "batch", "instance", "layer".
+            skip_hidden_dims: Hidden channel sizes for the pointwise skip MLP.
+            nonlinearity: Activation name applied after normalization.
+                Supported values: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu".
+            pointwise_dropout: Dropout rate used inside pointwise MLP blocks.
+        """
         super().__init__()
 
         dim = len(modes)
@@ -367,10 +418,18 @@ class FourierLayer(nn.Module):
             dropout=pointwise_dropout,
         )
         self.spectral_conv = SpectralConv.create(in_channels, out_channels, modes)
-        self.bn = norm_class(out_channels) if norm_class is not None else None
+        self.bn = build_normalization(norm_class, out_channels, dim)
         self.nonlinearity = build_activation(nonlinearity)
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
+        """Applies spectral convolution, skip connection, optional normalization, and activation.
+
+        Args:
+            vt: Input tensor of shape `(batch, in_channels, *spatial)`.
+
+        Returns:
+            Output tensor of shape `(batch, out_channels, *spatial)`.
+        """
         # vt: (batch, in_channels, *spatial)
         x = self.spectral_conv(vt) + self.skip_weight(vt)
         if self.bn is not None:
@@ -392,26 +451,28 @@ class FNO(nn.Module):
         in_channels: int,
         out_channels: int,
         layer_shapes: tuple[int],
-        norm_class: type[nn.Module] = None,
+        norm_class: str | None = None,
         lift_hidden_dims: tuple[int, ...] = (),
         projection_hidden_dims: tuple[int, ...] = (),
         skip_hidden_dims: tuple[int, ...] = (),
-        nonlinearity: type[nn.Module] | nn.Module | Callable[[], nn.Module] = nn.ReLU,
+        nonlinearity: str = "relu",
         pointwise_dropout: float = 0.0,
     ) -> None:
-        """
-        Initializes the FNO model.
+        """Initializes the FNO model.
 
         Args:
             modes: Number of Fourier modes to keep. Dimension is inferred from length of this tuple.
             layer_shapes: List of channel dimensions for Fourier layers.
-            norm_class: Normalization layer type (optional).
+            norm_class: Normalization name (optional).
+                Supported values: "none", "batch", "instance", "layer".
             in_channels: Number of input features.
             out_channels: Number of output features.
             lift_hidden_dims: Hidden channel sizes for pointwise lift MLP.
             projection_hidden_dims: Hidden channel sizes for pointwise projection MLP.
             skip_hidden_dims: Hidden channel sizes for each Fourier-layer pointwise skip MLP.
-            nonlinearity: Nonlinear activation used in all pointwise MLPs.
+            nonlinearity: Activation name used in all pointwise MLPs and Fourier layers.
+                Supported values: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu".
+            pointwise_dropout: Dropout rate used in all pointwise MLP blocks.
         """
         super().__init__()
 
@@ -448,6 +509,14 @@ class FNO(nn.Module):
         )
 
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
+        """Runs the full FNO forward pass.
+
+        Args:
+            vt: Input tensor of shape `(batch, in_channels, *spatial)`.
+
+        Returns:
+            Output tensor of shape `(batch, out_channels, *spatial)`.
+        """
         # vt: (batch, in_channels, *spatial)
         lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
         fouriered = lifted
@@ -458,14 +527,19 @@ class FNO(nn.Module):
 
 
 class LpLoss:
-    """
-    Relative L2 norm loss, widely used for PDE surrogate models like FNO.
-    Computes: ||x - y||_2 / ||y||_2
-    """
+    """Relative $L_p$ loss, commonly used for PDE surrogate models like FNO."""
 
     def __init__(
         self, d: int = 2, p: int = 2, size_average: bool = True, reduction: bool = True
     ) -> None:
+        """Initializes the relative $L_p$ loss.
+
+        Args:
+            d: Physical dimension parameter retained for compatibility.
+            p: Norm degree used in the relative error.
+            size_average: When reducing, compute mean if True, else sum.
+            reduction: Whether to reduce batch losses to a scalar.
+        """
         assert d > 0 and p > 0
         self.d = d
         self.p = p
@@ -498,4 +572,13 @@ class LpLoss:
         return diff_norms / y_norms
 
     def __call__(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Computes the relative $L_p$ loss.
+
+        Args:
+            x: Predicted tensor.
+            y: Ground-truth tensor.
+
+        Returns:
+            Relative error as a scalar or per-sample tensor, depending on `reduction`.
+        """
         return self.rel(x, y)

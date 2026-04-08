@@ -4,23 +4,56 @@ import random
 import numpy as np
 import wandb
 from collections import OrderedDict
-from copy import deepcopy
-from typing import Callable
 
 
-def build_activation(
-    nonlinearity: (
-        type[torch.nn.Module] | torch.nn.Module | Callable[[], torch.nn.Module]
-    ),
-) -> torch.nn.Module:
-    if isinstance(nonlinearity, torch.nn.Module):
-        return deepcopy(nonlinearity)
-    if isinstance(nonlinearity, type) and issubclass(nonlinearity, torch.nn.Module):
-        return nonlinearity()
-    built = nonlinearity()
-    if not isinstance(built, torch.nn.Module):
-        raise TypeError("nonlinearity must return an nn.Module instance.")
-    return built
+def build_activation(nonlinearity: str) -> torch.nn.Module:
+    activation_registry = {
+        "relu": torch.nn.ReLU,
+        "gelu": torch.nn.GELU,
+        "silu": torch.nn.SiLU,
+        "tanh": torch.nn.Tanh,
+        "elu": torch.nn.ELU,
+        "leaky_relu": torch.nn.LeakyReLU,
+    }
+    key = nonlinearity.lower()
+    if key not in activation_registry:
+        options = ", ".join(sorted(activation_registry))
+        raise ValueError(
+            f"Unsupported nonlinearity '{nonlinearity}'. Available: {options}."
+        )
+    return activation_registry[key]()
+
+
+def build_normalization(
+    norm_class: str | None,
+    num_channels: int,
+    dim: int,
+) -> torch.nn.Module | None:
+    if norm_class is None or norm_class.lower() == "none":
+        return None
+
+    norm_key = norm_class.lower()
+    if norm_key == "batch":
+        if dim == 1:
+            return torch.nn.BatchNorm1d(num_channels)
+        if dim == 2:
+            return torch.nn.BatchNorm2d(num_channels)
+        if dim == 3:
+            return torch.nn.BatchNorm3d(num_channels)
+    elif norm_key == "instance":
+        if dim == 1:
+            return torch.nn.InstanceNorm1d(num_channels)
+        if dim == 2:
+            return torch.nn.InstanceNorm2d(num_channels)
+        if dim == 3:
+            return torch.nn.InstanceNorm3d(num_channels)
+    elif norm_key == "layer":
+        # Channel-wise LayerNorm equivalent for channel-first tensors.
+        return torch.nn.GroupNorm(1, num_channels)
+
+    raise ValueError(
+        f"Unsupported norm_class '{norm_class}'. Available: none, batch, instance, layer."
+    )
 
 
 def set_seed(seed: int = 42) -> None:
