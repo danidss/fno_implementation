@@ -21,6 +21,7 @@ model:
   projection_hidden_dims: []
   skip_hidden_dims: []
   pointwise_dropout: 0.0
+  padding: 0.0
 
 training:
   batch_size: 20

@@ -22,6 +22,7 @@ class OriginalFNO(nn.Module):
         nonlinearity: str = "relu",
         lift_hidden_dims: tuple[int, ...] = (),
         projection_hidden_dims: tuple[int, ...] = (),
+        padding: float | list[float] | tuple[float, ...] = 0.0,
     ) -> None:
         """
         Initializes the reference FNO model.
@@ -35,6 +36,8 @@ class OriginalFNO(nn.Module):
             nonlinearity: Activation name. Supported: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu"
             lift_hidden_dims: Hidden dimensions for lift MLP in our model; mapped to neuralop lifting ratio
             projection_hidden_dims: Hidden dimensions for projection MLP in our model; mapped to neuralop projection ratio
+            padding: Symmetric spatial padding ratio(s). Use a single float in [0, 1] for
+                all dimensions or a list/tuple with one value per dimension in modes.
         """
         super().__init__()
 
@@ -76,8 +79,8 @@ class OriginalFNO(nn.Module):
             positional_embedding=None,
             # Resolution scaling is done in data preprocessing
             resolution_scaling_factor=None,
-            # No domain padding
-            domain_padding=None,
+            # Optional domain padding to match our implementation behavior
+            domain_padding=padding,
             # No tensorized/factorized spectral weights (dense baseline)
             factorization=None,
             rank=1.0,

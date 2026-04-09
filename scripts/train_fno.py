@@ -61,14 +61,23 @@ def main(cfg: DictConfig) -> None:
         "layers": cfg.model.layers,
         "in_channels": in_channels,
         "out_channels": 1,
-        "norm_class": cfg.model.norm_class,
-        "nonlinearity": cfg.model.nonlinearity,
-        "lift_hidden_dims": tuple(cfg.model.lift_hidden_dims),
-        "projection_hidden_dims": tuple(cfg.model.projection_hidden_dims),
-        "skip_hidden_dims": tuple(cfg.model.skip_hidden_dims),
-        "pointwise_dropout": float(cfg.model.pointwise_dropout),
+        "norm_class": OmegaConf.select(cfg, "model.norm_class", default="none"),
+        "nonlinearity": OmegaConf.select(cfg, "model.nonlinearity", default="relu"),
+        "lift_hidden_dims": tuple(
+            OmegaConf.select(cfg, "model.lift_hidden_dims", default=[])
+        ),
+        "projection_hidden_dims": tuple(
+            OmegaConf.select(cfg, "model.projection_hidden_dims", default=[])
+        ),
+        "skip_hidden_dims": tuple(
+            OmegaConf.select(cfg, "model.skip_hidden_dims", default=[])
+        ),
+        "pointwise_dropout": float(
+            OmegaConf.select(cfg, "model.pointwise_dropout", default=0.0)
+        ),
+        "padding": OmegaConf.select(cfg, "model.padding", default=0.0),
         "dataset": cfg.data.dataset,
-        "subsample": cfg.data.subsample,
+        "subsample": OmegaConf.select(cfg, "data.subsample", default=None),
         "implementation": cfg.model.implementation,
     }
 
@@ -94,6 +103,7 @@ def main(cfg: DictConfig) -> None:
             projection_hidden_dims=tuple(hp.get("projection_hidden_dims", ())),
             skip_hidden_dims=tuple(hp.get("skip_hidden_dims", ())),
             pointwise_dropout=hp.get("pointwise_dropout", 0.0),
+            padding=hp.get("padding", 0.0),
         ).to(device)
     elif implementation == "original":
         model = OriginalFNO(
@@ -105,6 +115,7 @@ def main(cfg: DictConfig) -> None:
             nonlinearity=hp.get("nonlinearity", "relu"),
             lift_hidden_dims=tuple(hp.get("lift_hidden_dims", ())),
             projection_hidden_dims=tuple(hp.get("projection_hidden_dims", ())),
+            padding=hp.get("padding", 0.0),
         ).to(device)
     else:
         raise ValueError(f"Unknown implementation '{implementation}'")

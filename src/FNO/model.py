@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
+import torch.nn.functional as F
 from typing import Type
 
 from src.utils import build_activation, build_normalization
@@ -457,6 +458,7 @@ class FNO(nn.Module):
         skip_hidden_dims: tuple[int, ...] = (),
         nonlinearity: str = "relu",
         pointwise_dropout: float = 0.0,
+        padding: float | list[float] | tuple[float, ...] = 0.0,
     ) -> None:
         """Initializes the FNO model.
 
@@ -473,11 +475,15 @@ class FNO(nn.Module):
             nonlinearity: Activation name used in all pointwise MLPs and Fourier layers.
                 Supported values: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu".
             pointwise_dropout: Dropout rate used in all pointwise MLP blocks.
+            padding: Symmetric spatial padding ratio(s) applied after lift and removed
+                before projection. Provide either a single float in [0, 1] or a list/tuple
+                of floats in [0, 1] with length equal to len(modes).
         """
         super().__init__()
 
         dim = len(modes)
         assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
+        self.padding = self._validate_padding(padding, modes)
 
         self.lift = PointwiseMLP(
             in_channels=in_channels,
@@ -508,6 +514,67 @@ class FNO(nn.Module):
             dropout=pointwise_dropout,
         )
 
+    @staticmethod
+    def _validate_padding(
+        padding: float | list[float] | tuple[float, ...],
+        modes: tuple[int, ...],
+    ) -> tuple[float, ...]:
+        """Validates and normalizes padding into one value per spatial dimension."""
+        n_dim = len(modes)
+
+        if isinstance(padding, (int, float)):
+            value = float(padding)
+            if value < 0.0 or value > 1.0:
+                raise ValueError(f"padding must be in [0, 1]. Received {padding}.")
+            return (value,) * n_dim
+
+        if isinstance(padding, (list, tuple)):
+            if len(padding) != n_dim:
+                raise ValueError(
+                    f"Padding list length ({len(padding)}) must match len(modes) ({n_dim})."
+                )
+            values = tuple(float(value) for value in padding)
+            if any(value < 0.0 or value > 1.0 for value in values):
+                raise ValueError(
+                    f"Each padding value must be in [0, 1]. Received {padding}."
+                )
+            return values
+
+        raise TypeError(
+            "padding must be a float or a list/tuple of floats. "
+            f"Received type {type(padding).__name__}."
+        )
+
+    @staticmethod
+    def _pad_spatial(
+        x: torch.Tensor,
+        padding: tuple[float, ...],
+    ) -> tuple[torch.Tensor, tuple[int, ...] | None]:
+        """Applies symmetric zero padding in spatial dimensions."""
+        spatial_shape = x.shape[2:]
+        pad_sizes = tuple(
+            int(round(ratio * size)) for ratio, size in zip(padding, spatial_shape)
+        )
+
+        if all(size == 0 for size in pad_sizes):
+            return x, None
+
+        pad_spec: list[int] = []
+        for size in reversed(pad_sizes):  # Reverse to match F.pad's order
+            pad_spec.extend([size, size])
+        return F.pad(x, pad_spec, mode="constant", value=0.0), pad_sizes
+
+    @staticmethod
+    def _unpad_spatial(x: torch.Tensor, pad_sizes: tuple[int, ...]) -> torch.Tensor:
+        """Removes symmetric padding from spatial dimensions."""
+        slices: list[slice] = [slice(None), slice(None)]
+        for size in pad_sizes:
+            if size == 0:
+                slices.append(slice(None))
+            else:
+                slices.append(slice(size, -size))
+        return x[tuple(slices)]
+
     def forward(self, vt: torch.Tensor) -> torch.Tensor:
         """Runs the full FNO forward pass.
 
@@ -519,9 +586,12 @@ class FNO(nn.Module):
         """
         # vt: (batch, in_channels, *spatial)
         lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
-        fouriered = lifted
+        padded, pad_sizes = self._pad_spatial(lifted, self.padding)
+        fouriered = padded
         for layer in self.fourier_layers:
             fouriered = layer(fouriered)  # (batch, layer_shapes[i], *spatial)
+        if pad_sizes is not None:
+            fouriered = self._unpad_spatial(fouriered, pad_sizes)
         projected = self.project(fouriered)  # (batch, out_channels, *spatial)
         return projected
 
