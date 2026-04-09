@@ -61,7 +61,12 @@ def main(cfg: DictConfig) -> None:
         "layers": cfg.model.layers,
         "in_channels": in_channels,
         "out_channels": 1,
-        "norm_class": None,
+        "norm_class": cfg.model.norm_class,
+        "nonlinearity": cfg.model.nonlinearity,
+        "lift_hidden_dims": tuple(cfg.model.lift_hidden_dims),
+        "projection_hidden_dims": tuple(cfg.model.projection_hidden_dims),
+        "skip_hidden_dims": tuple(cfg.model.skip_hidden_dims),
+        "pointwise_dropout": float(cfg.model.pointwise_dropout),
         "dataset": cfg.data.dataset,
         "subsample": cfg.data.subsample,
         "implementation": cfg.model.implementation,
@@ -83,7 +88,12 @@ def main(cfg: DictConfig) -> None:
             in_channels=hp["in_channels"],
             out_channels=1,
             layer_shapes=layer_shapes,
-            norm_class=hp.get("norm_class", None),
+            norm_class=hp.get("norm_class", "none"),
+            nonlinearity=hp.get("nonlinearity", "relu"),
+            lift_hidden_dims=tuple(hp.get("lift_hidden_dims", ())),
+            projection_hidden_dims=tuple(hp.get("projection_hidden_dims", ())),
+            skip_hidden_dims=tuple(hp.get("skip_hidden_dims", ())),
+            pointwise_dropout=hp.get("pointwise_dropout", 0.0),
         ).to(device)
     elif implementation == "original":
         model = OriginalFNO(
@@ -91,6 +101,10 @@ def main(cfg: DictConfig) -> None:
             layer_shapes=layer_shapes,
             in_channels=hp["in_channels"],
             out_channels=1,
+            norm_class=hp.get("norm_class", "none"),
+            nonlinearity=hp.get("nonlinearity", "relu"),
+            lift_hidden_dims=tuple(hp.get("lift_hidden_dims", ())),
+            projection_hidden_dims=tuple(hp.get("projection_hidden_dims", ())),
         ).to(device)
     else:
         raise ValueError(f"Unknown implementation '{implementation}'")

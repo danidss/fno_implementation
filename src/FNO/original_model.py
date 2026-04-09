@@ -18,15 +18,23 @@ class OriginalFNO(nn.Module):
         layer_shapes: tuple[int],
         in_channels: int = 1,
         out_channels: int = 1,
+        norm_class: str | None = "none",
+        nonlinearity: str = "relu",
+        lift_hidden_dims: tuple[int, ...] = (),
+        projection_hidden_dims: tuple[int, ...] = (),
     ) -> None:
         """
         Initializes the reference FNO model.
 
         Args:
-            modes: Frequency modes to truncate per dimension.
-            layer_shapes: Fourier layer widths.
-            in_channels: Number of input features.
-            out_channels: Number of output features.
+            modes: Frequency modes to truncate per dimension
+            layer_shapes: Fourier layer widths
+            in_channels: Number of input features
+            out_channels: Number of output features
+            norm_class: Normalization name. Supported: "none", "batch", "instance", "layer"
+            nonlinearity: Activation name. Supported: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu"
+            lift_hidden_dims: Hidden dimensions for lift MLP in our model; mapped to neuralop lifting ratio
+            projection_hidden_dims: Hidden dimensions for projection MLP in our model; mapped to neuralop projection ratio
         """
         super().__init__()
 
@@ -36,60 +44,102 @@ class OriginalFNO(nn.Module):
             )
 
         hidden_channels = layer_shapes[0]
-        # Our FNO builds one Fourier block per adjacent pair in layer_shapes.
-        # For (width,) * L this is L-1 blocks, so match that behavior here.
+        # Our FNO builds one Fourier block per adjacent pair in layer_shapes
+        # For (width,) * L this is L-1 blocks, so match that behavior here
         n_layers = max(1, len(layer_shapes) - 1)
 
+        non_linearity = self._resolve_nonlinearity(nonlinearity)
+        norm = self._resolve_norm(norm_class)
+
+        lifting_channel_ratio = (
+            lift_hidden_dims[0] / hidden_channels if lift_hidden_dims else 0
+        )
+        projection_channel_ratio = (
+            projection_hidden_dims[0] / hidden_channels if projection_hidden_dims else 1
+        )
+
         self.model = NeuralOperatorFNO(
-            # Keep the same Fourier dimensionality and channels as our implementation.
+            # Keep the same Fourier dimensionality and channels as our implementation
             n_modes=modes,
             in_channels=in_channels,
             out_channels=out_channels,
             hidden_channels=hidden_channels,
             n_layers=n_layers,
-            # lifting_channel_ratio=0 forces neuralop lifting to a single linear
-            # ChannelMLP layer (effectively a 1x1 channel map, like our 1x1 lift).
-            lifting_channel_ratio=0,
-            # DIFFERENCE projection in neuralop is internally a 2-layer ChannelMLP
-            # in this class. ratio=1 is the closest to a simple 1x1 project.
-            projection_channel_ratio=1,
-            # Do not append coordinate channels (we add them manually for now).
+            # Approximate our lift/projection channel widths via neuralop ratios
+            lifting_channel_ratio=lifting_channel_ratio,
+            projection_channel_ratio=projection_channel_ratio,
+            # Best-effort mapping from our normalization choices to neuralop options
+            norm=norm,
+            # Match our nonlinearity
+            non_linearity=non_linearity,
+            # Do not append coordinate channels (we add them manually for now)
             positional_embedding=None,
-            # Keep block channel mixer off (ours has no extra channel MLP branch).
-            use_channel_mlp=False,
-            # No normalization branch (DIFFERENCE ours uses BatchNorm
-            # in FourierLayer, they have ada_in, group_norm and instance_norm).
-            norm=None,
-            # No domain padding / multi-resolution behavior.
-            domain_padding=None,
+            # Resolution scaling is done in data preprocessing
             resolution_scaling_factor=None,
-            # No tensorized/factorized spectral weights (dense baseline).
+            # No domain padding
+            domain_padding=None,
+            # No tensorized/factorized spectral weights (dense baseline)
             factorization=None,
             rank=1.0,
             fixed_rank_modes=False,
             implementation="factorized",
             separable=False,
-            # No preactivation variant.
+            # No preactivation variant
             preactivation=False,
-            # No stabilizer, no dynamic mode schedule.
+            # No stabilizer, no dynamic mode schedule
             stabilizer=None,
             max_n_modes=None,
-            # Match our nonlinearity.
-            non_linearity=F.relu,
-            # Linear skip in spectral block.
+            # Linear skip in spectral block
             fno_skip="linear",
-            # Full precision path (avoid mixed/half precision differences).
+            # Full precision path (no other precisions implemented)
             fno_block_precision="full",
+            # ours has no extra channel MLP branch
+            use_channel_mlp=False,
             # Inactive because use_channel_mlp=False (kept explicit for clarity)
             channel_mlp_dropout=0.0,
             channel_mlp_expansion=0.5,
             channel_mlp_skip="linear",
         )
 
+    @staticmethod
+    def _resolve_nonlinearity(nonlinearity: str):
+        nonlinearity_map = {
+            "relu": F.relu,
+            "gelu": F.gelu,
+            "silu": F.silu,
+            "tanh": torch.tanh,
+            "elu": F.elu,
+            "leaky_relu": F.leaky_relu,
+        }
+        key = nonlinearity.lower()
+        if key not in nonlinearity_map:
+            options = ", ".join(sorted(nonlinearity_map))
+            raise ValueError(
+                f"Unsupported nonlinearity '{nonlinearity}'. Available: {options}."
+            )
+        return nonlinearity_map[key]
+
+    @staticmethod
+    def _resolve_norm(norm_class: str | None):
+        if norm_class is None or norm_class.lower() == "none":
+            return None
+        norm_map = {
+            "instance": "instance_norm",
+            "layer": "group_norm",
+            # neuralop does not expose batch norm in this API; use no norm as closest fallback
+            "batch": None,
+        }
+        key = norm_class.lower()
+        if key not in norm_map:
+            raise ValueError(
+                f"Unsupported norm_class '{norm_class}'. Available: none, batch, instance, layer."
+            )
+        return norm_map[key]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Our datasets and training loop use channel-first tensors:
         #   1D -> (batch, channels, x)
         #   2D -> (batch, channels, x, y)
         #   3D -> (batch, channels, x, y, z)
-        # neuraloperator.models.FNO expects the same layout.
+        # neuraloperator.models.FNO expects the same layout
         return self.model(x)
