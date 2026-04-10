@@ -6,11 +6,6 @@ import torch.nn.functional as F
 from src.utils import build_activation, build_normalization
 
 
-# TODO check better contiguous allocation for the matrix
-# multiplication instead of one einsum for each corner
-# TODO check if we can optimize the padding / zeros creation
-
-
 class SpectralConv(nn.Module):
     """N-dimensional spectral convolution using fftshift-centered mode selection."""
 
@@ -36,7 +31,7 @@ class SpectralConv(nn.Module):
         self.modes = tuple(int(mode) for mode in modes)
 
         scale = 1 / (in_channels * out_channels)
-        self.weights = nn.Parameter(
+        self.weights = nn.Parameter(  # TODO check initialization
             scale
             * torch.rand(
                 in_channels,
@@ -46,50 +41,72 @@ class SpectralConv(nn.Module):
             )
         )
 
+    # TODO bias?
+
     @staticmethod
-    def _centered_slices(
+    def _spectral_slices(
         spatial_shape: tuple[int, ...],
         modes: tuple[int, ...],
-    ) -> tuple[slice, ...]:
-        """Builds centered slices around zero frequency after fftshift."""
+    ) -> tuple[tuple[slice, ...], tuple[int, ...]]:
+        """Builds frequency-domain slices for rfftn output."""
+        if len(spatial_shape) != len(modes):
+            raise ValueError(
+                f"Input has {len(spatial_shape)} spatial dims but modes has {len(modes)}."
+            )
+
+        # Because it's rfft, last dim is truncated to floor(N/2)+1, 0 to Nyquist freq
+        # The other dims go from [-N/2, N/2) with low freqs in the center
+        shifted_shape = (*spatial_shape[:-1], spatial_shape[-1] // 2 + 1)
         slices: list[slice] = []
-        for size, mode in zip(spatial_shape, modes):
+
+        # For each axis, calculate the slice object that selects the low-frequency modes
+        for axis, (size, mode) in enumerate(zip(shifted_shape, modes)):
             if mode > size:
                 raise ValueError(
-                    f"Requested modes {modes} exceed spatial resolution {spatial_shape}."
+                    f"Requested modes {modes} exceed spatial resolution in rfftn space {shifted_shape}."
                 )
-            start = (size - mode) // 2
-            slices.append(slice(start, start + mode))
-        return tuple(slices)
+
+            is_last_axis = axis == len(modes) - 1
+            if is_last_axis:
+                slices.append(slice(0, mode))
+            else:
+                start = (size - mode) // 2
+                slices.append(slice(start, start + mode))
+
+        return tuple(slices), shifted_shape
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Applies spectral convolution while retaining centered low-frequency modes."""
         spatial_shape = tuple(x.shape[2:])
-        if len(spatial_shape) != len(self.modes):
-            raise ValueError(
-                f"Input has {len(spatial_shape)} spatial dims but modes has {len(self.modes)}."
-            )
 
+        # We compute the slices of the lowest self.modes frequencies
         fft_dims = tuple(range(2, x.ndim))
-        centered_slices = self._centered_slices(spatial_shape, self.modes)
-        freq_index = (slice(None), slice(None), *centered_slices)
+        freq_slices, rfft_shape = self._spectral_slices(spatial_shape, self.modes)
+        freq_index = (slice(None), slice(None), *freq_slices)
 
-        x_ft = fft.fftn(x, dim=fft_dims)
-        x_ft = fft.fftshift(x_ft, dim=fft_dims)
+        x_ft = fft.rfftn(x, dim=fft_dims)
+
+        # We shift the output freqs from [0,...,N/2,-N/2,...,0) to [-N/2,...,0,...,N/2)
+        # Last dim is not shifted as it is [0, N/2] instead, due to real fft
+        if len(fft_dims) > 1:
+            x_ft = fft.fftshift(x_ft, dim=fft_dims[:-1])
 
         out_ft = torch.zeros(
             x.shape[0],
             self.out_channels,
-            *spatial_shape,
+            *rfft_shape,
             device=x.device,
             dtype=torch.cfloat,
         )
-
+        # Select only the low frequency modes
         x_low = x_ft[freq_index]
+        # We initialize weights as a parameter and directly multiply instead of using
+        # a linear layer because frequencies are not mixed in the spectral convolution
         out_ft[freq_index] = torch.einsum("bi...,io...->bo...", x_low, self.weights)
 
-        out_ft = fft.ifftshift(out_ft, dim=fft_dims)
-        return fft.ifftn(out_ft, s=spatial_shape, dim=fft_dims).real
+        if len(fft_dims) > 1:
+            out_ft = fft.ifftshift(out_ft, dim=fft_dims[:-1])
+        return fft.irfftn(out_ft, s=spatial_shape, dim=fft_dims)
 
 
 class PointwiseMLP(nn.Module):
@@ -177,6 +194,7 @@ class FourierLayer(nn.Module):
 
         dim = len(modes)
 
+        self.spectral_conv = SpectralConv(in_channels, out_channels, modes)
         self.skip_weight = PointwiseMLP(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -184,7 +202,6 @@ class FourierLayer(nn.Module):
             nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
-        self.spectral_conv = SpectralConv(in_channels, out_channels, modes)
         self.bn = build_normalization(norm_class, out_channels, dim)
         self.nonlinearity = build_activation(nonlinearity)
 
@@ -290,14 +307,18 @@ class FNO(nn.Module):
             Output tensor of shape `(batch, out_channels, *spatial)`.
         """
         # vt: (batch, in_channels, *spatial)
-        lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
+        lifted = self.lift(vt)
+
         padded, pad_sizes = self._pad_spatial(lifted, self.padding)
+
         fouriered = padded
         for layer in self.fourier_layers:
-            fouriered = layer(fouriered)  # (batch, layer_shapes[i], *spatial)
+            fouriered = layer(fouriered)
+
         if pad_sizes is not None:
             fouriered = self._unpad_spatial(fouriered, pad_sizes)
-        projected = self.project(fouriered)  # (batch, out_channels, *spatial)
+
+        projected = self.project(fouriered)  # out: (batch, out_channels, *spatial)
         return projected
 
     @staticmethod
@@ -336,7 +357,10 @@ class FNO(nn.Module):
         x: torch.Tensor,
         padding: tuple[float, ...],
     ) -> tuple[torch.Tensor, tuple[int, ...] | None]:
-        """Applies symmetric zero padding in spatial dimensions."""
+        """
+        Applies symmetric zero padding in spatial dimensions. Done to mitigate
+        spectral ringing from sharp boundaries and non-periodicity.
+        """
         spatial_shape = x.shape[2:]
         pad_sizes = tuple(
             int(round(ratio * size)) for ratio, size in zip(padding, spatial_shape)
