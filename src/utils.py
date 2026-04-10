@@ -40,6 +40,10 @@ def build_normalization(
             return torch.nn.BatchNorm2d(num_channels)
         if dim == 3:
             return torch.nn.BatchNorm3d(num_channels)
+        raise ValueError(
+            "Batch normalization only supports 1D/2D/3D inputs in this implementation. "
+            f"Received dim={dim}."
+        )
     elif norm_key == "instance":
         if dim == 1:
             return torch.nn.InstanceNorm1d(num_channels)
@@ -47,6 +51,10 @@ def build_normalization(
             return torch.nn.InstanceNorm2d(num_channels)
         if dim == 3:
             return torch.nn.InstanceNorm3d(num_channels)
+        raise ValueError(
+            "Instance normalization only supports 1D/2D/3D inputs in this implementation. "
+            f"Received dim={dim}."
+        )
     elif norm_key == "layer":
         # Channel-wise LayerNorm equivalent for channel-first tensors.
         return torch.nn.GroupNorm(1, num_channels)

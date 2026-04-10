@@ -75,12 +75,12 @@ class OriginalFNO(nn.Module):
             norm=norm,
             # Match our nonlinearity
             non_linearity=non_linearity,
+            # Optional domain padding to match our implementation behavior
+            domain_padding=padding,
             # Do not append coordinate channels (we add them manually for now)
             positional_embedding=None,
             # Resolution scaling is done in data preprocessing
             resolution_scaling_factor=None,
-            # Optional domain padding to match our implementation behavior
-            domain_padding=padding,
             # No tensorized/factorized spectral weights (dense baseline)
             factorization=None,
             rank=1.0,
@@ -89,16 +89,16 @@ class OriginalFNO(nn.Module):
             separable=False,
             # No preactivation variant
             preactivation=False,
-            # No stabilizer, no dynamic mode schedule
-            stabilizer=None,
+            # Static modes in training
             max_n_modes=None,
-            # Linear skip in spectral block
+            # Linear skip in spectral block (soft gating and no skip not implemented)
             fno_skip="linear",
             # Full precision path (no other precisions implemented)
             fno_block_precision="full",
+            # No stabilizer (mainly useful for mixed precision, which we don't implement)
+            stabilizer=None,
             # ours has no extra channel MLP branch
             use_channel_mlp=False,
-            # Inactive because use_channel_mlp=False (kept explicit for clarity)
             channel_mlp_dropout=0.0,
             channel_mlp_expansion=0.5,
             channel_mlp_skip="linear",

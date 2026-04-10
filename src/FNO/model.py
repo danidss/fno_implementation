@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.fft as fft
 import torch.nn.functional as F
-from typing import Type
 
 from src.utils import build_activation, build_normalization
 
@@ -13,39 +12,84 @@ from src.utils import build_activation, build_normalization
 
 
 class SpectralConv(nn.Module):
-    """Base class and factory for dimension-specific spectral convolutions."""
+    """N-dimensional spectral convolution using fftshift-centered mode selection."""
 
-    @classmethod
-    def create(
-        cls,
-        in_channels: int,
-        out_channels: int,
-        modes: tuple[int, ...],
-    ) -> "SpectralConv":
-        """Creates the dimension-specific spectral convolution implementation.
+    def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
+        """Initializes the spectral convolution.
 
         Args:
             in_channels: Number of input channels.
             out_channels: Number of output channels.
             modes: Number of retained Fourier modes per spatial dimension.
-
-        Returns:
-            An instance of `SpectralConv1d`, `SpectralConv2d`, or `SpectralConv3d`.
         """
-        conv_cls: Type[SpectralConv]
-        dim = len(modes)
-        if dim == 1:
-            conv_cls = SpectralConv1d
-        elif dim == 2:
-            conv_cls = SpectralConv2d
-        elif dim == 3:
-            conv_cls = SpectralConv3d
-        else:
+        super().__init__()
+
+        if len(modes) == 0:
+            raise ValueError("modes must contain at least one spatial dimension.")
+        if any(mode <= 0 for mode in modes):
             raise ValueError(
-                f"Unsupported dimension inferred from modes={modes}. Expected 1D, 2D or 3D."
+                f"Each entry in modes must be positive. Received modes={modes}."
             )
 
-        return conv_cls(in_channels, out_channels, modes)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.modes = tuple(int(mode) for mode in modes)
+
+        scale = 1 / (in_channels * out_channels)
+        self.weights = nn.Parameter(
+            scale
+            * torch.rand(
+                in_channels,
+                out_channels,
+                *self.modes,
+                dtype=torch.cfloat,
+            )
+        )
+
+    @staticmethod
+    def _centered_slices(
+        spatial_shape: tuple[int, ...],
+        modes: tuple[int, ...],
+    ) -> tuple[slice, ...]:
+        """Builds centered slices around zero frequency after fftshift."""
+        slices: list[slice] = []
+        for size, mode in zip(spatial_shape, modes):
+            if mode > size:
+                raise ValueError(
+                    f"Requested modes {modes} exceed spatial resolution {spatial_shape}."
+                )
+            start = (size - mode) // 2
+            slices.append(slice(start, start + mode))
+        return tuple(slices)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Applies spectral convolution while retaining centered low-frequency modes."""
+        spatial_shape = tuple(x.shape[2:])
+        if len(spatial_shape) != len(self.modes):
+            raise ValueError(
+                f"Input has {len(spatial_shape)} spatial dims but modes has {len(self.modes)}."
+            )
+
+        fft_dims = tuple(range(2, x.ndim))
+        centered_slices = self._centered_slices(spatial_shape, self.modes)
+        freq_index = (slice(None), slice(None), *centered_slices)
+
+        x_ft = fft.fftn(x, dim=fft_dims)
+        x_ft = fft.fftshift(x_ft, dim=fft_dims)
+
+        out_ft = torch.zeros(
+            x.shape[0],
+            self.out_channels,
+            *spatial_shape,
+            device=x.device,
+            dtype=torch.cfloat,
+        )
+
+        x_low = x_ft[freq_index]
+        out_ft[freq_index] = torch.einsum("bi...,io...->bo...", x_low, self.weights)
+
+        out_ft = fft.ifftshift(out_ft, dim=fft_dims)
+        return fft.ifftn(out_ft, s=spatial_shape, dim=fft_dims).real
 
 
 class PointwiseMLP(nn.Module):
@@ -103,282 +147,6 @@ class PointwiseMLP(nn.Module):
         return tokens.transpose(1, 2).unflatten(2, spatial_shape)
 
 
-class SpectralConv1d(SpectralConv):
-    """1D spectral convolution layer for Fourier Neural Operators."""
-
-    def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
-        """
-        Initializes the 1D Spectral Convolution layer.
-
-        Args:
-            in_channels: Number of input channels.
-            out_channels: Number of output channels.
-            modes: Number of low-frequency modes to retain.
-        """
-        super().__init__()
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-
-        self.modes = modes[0]
-
-        scale = 1 / (in_channels * out_channels)
-        self.weights = nn.Parameter(
-            scale
-            * torch.rand(in_channels, out_channels, self.modes, dtype=torch.cfloat)
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for 1D Spectral Convolution.
-
-        Args:
-            x: Input tensor of shape (batch_size, in_channels, n).
-
-        Returns:
-            Filtered output tensor of shape (batch_size, out_channels, n).
-        """
-        # Shape of x: (batch_size, in_channels, n)
-        batchsize = x.shape[0]
-
-        x_ft: torch.Tensor = fft.rfft(x)
-
-        out_ft = torch.zeros(
-            batchsize,
-            self.out_channels,
-            x_ft.shape[-1],
-            device=x.device,
-            dtype=torch.cfloat,
-        )
-        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x' = frequency mode
-        out_ft[:, :, : self.modes] = torch.einsum(
-            "bix,iox->box", x_ft[:, :, : self.modes], self.weights
-        )
-
-        return fft.irfft(out_ft, n=x.shape[-1])
-
-
-class SpectralConv2d(SpectralConv):
-    """2D spectral convolution layer for Fourier Neural Operators."""
-
-    def __init__(self, in_channels: int, out_channels: int, modes: tuple[int, ...]):
-        """
-        Initializes the 2D Spectral Convolution layer.
-
-        Args:
-            in_channels: Number of input channels.
-            out_channels: Number of output channels.
-            modes: Number of modes to retain in each spatial dimension.
-        """
-        super().__init__()
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-
-        self.modes1, self.modes2 = modes
-
-        # We initialize the weights from an uniform u_r+u_c*i
-        scale = 1 / (in_channels * out_channels)
-
-        # In 2D using Real FFT, we have 2 corners of low frequencies:
-        # 1. Pos x, Pos y
-        # 2. Neg x, Pos y (because of the real FFT, y is only positive)
-        self.weights1 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat
-            )
-        )
-        self.weights2 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels, out_channels, self.modes1, self.modes2, dtype=torch.cfloat
-            )
-        )
-
-    def compl_mul2d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
-        """Performs complex multiplication in Fourier space for 2D tensors.
-
-        Args:
-            input: Complex input tensor in Fourier space.
-            weights: Complex learnable spectral weights.
-
-        Returns:
-            Complex output tensor after channel mixing.
-        """
-        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y' = frequency modes
-        return torch.einsum("bixy,ioxy->boxy", input, weights)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for 2D Spectral Convolution.
-
-        Args:
-            x: Input tensor of shape (batch, channels, height, width).
-
-        Returns:
-            Filtered output tensor of the same spatial dimensions.
-        """
-        # Shape of x: (batch_size, in_channels, n, m)
-        batchsize = x.shape[0]
-
-        x_ft: torch.Tensor = fft.rfft2(x)
-
-        out_ft = torch.zeros(
-            batchsize,
-            self.out_channels,
-            x.shape[-2],
-            x_ft.shape[-1],
-            device=x.device,
-            dtype=torch.cfloat,
-        )
-        # Corner 1: Top-Left (Positive frequencies for dim 1, Positive for dim 2)
-        out_ft[:, :, : self.modes1, : self.modes2] = self.compl_mul2d(
-            x_ft[:, :, : self.modes1, : self.modes2], self.weights1
-        )
-        # Corner 2: Bottom-Left (Negative frequencies for dim 1, Positive for dim 2)
-        out_ft[:, :, -self.modes1 :, : self.modes2] = self.compl_mul2d(
-            x_ft[:, :, -self.modes1 :, : self.modes2], self.weights2
-        )
-
-        return fft.irfft2(out_ft, s=(x.shape[-2], x.shape[-1]))
-
-
-class SpectralConv3d(SpectralConv):
-    """3D spectral convolution layer for Fourier Neural Operators."""
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        modes: tuple[int, ...],
-    ):
-        """
-        Initializes the 3D Spectral Convolution layer.
-
-        Args:
-            in_channels: Number of input channels.
-            out_channels: Number of output channels.
-            modes: Number of modes to retain in each spatial dimension.
-        """
-        super().__init__()
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-
-        self.modes1, self.modes2, self.modes3 = modes
-
-        # We initialize the weights from an uniform u_r+u_c*i
-        scale = 1 / (in_channels * out_channels)
-
-        # In 3D using Real FFT, we have 4 corners of low frequencies:
-        # 1. Pos x, Pos y (Pos z is given by RFFT)
-        # 2. Neg x, Pos y
-        # 3. Pos x, Neg y
-        # 4. Neg x, Neg y
-        self.weights1 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels,
-                out_channels,
-                self.modes1,
-                self.modes2,
-                self.modes3,
-                dtype=torch.cfloat,
-            )
-        )
-        self.weights2 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels,
-                out_channels,
-                self.modes1,
-                self.modes2,
-                self.modes3,
-                dtype=torch.cfloat,
-            )
-        )
-        self.weights3 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels,
-                out_channels,
-                self.modes1,
-                self.modes2,
-                self.modes3,
-                dtype=torch.cfloat,
-            )
-        )
-        self.weights4 = nn.Parameter(
-            scale
-            * torch.rand(
-                in_channels,
-                out_channels,
-                self.modes1,
-                self.modes2,
-                self.modes3,
-                dtype=torch.cfloat,
-            )
-        )
-
-    def compl_mul3d(self, input: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
-        """Performs complex multiplication in Fourier space for 3D tensors.
-
-        Args:
-            input: Complex input tensor in Fourier space.
-            weights: Complex learnable spectral weights.
-
-        Returns:
-            Complex output tensor after channel mixing.
-        """
-        # 'b' = batch, 'i' = input channel, 'o' = output channel, 'x', 'y', 'z' = frequency modes
-        return torch.einsum("bixyz,ioxyz->boxyz", input, weights)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for 3D Spectral Convolution.
-
-        Args:
-            x: Input tensor of shape (batch, channels, d, h, w).
-
-        Returns:
-            Filtered output tensor.
-        """
-        # Shape of x: (batch_size, in_channels, n, m, p)
-        batchsize = x.shape[0]
-
-        x_ft = fft.rfftn(x, dim=[-3, -2, -1])
-
-        out_ft = torch.zeros(
-            batchsize,
-            self.out_channels,
-            x.shape[-3],
-            x.shape[-2],
-            x_ft.shape[-1],
-            device=x.device,
-            dtype=torch.cfloat,
-        )
-
-        # Corner 1: Positive x, Positive y, Positive z
-        out_ft[:, :, : self.modes1, : self.modes2, : self.modes3] = self.compl_mul3d(
-            x_ft[:, :, : self.modes1, : self.modes2, : self.modes3], self.weights1
-        )
-        # Corner 2: Negative x, Positive y, Positive z
-        out_ft[:, :, -self.modes1 :, : self.modes2, : self.modes3] = self.compl_mul3d(
-            x_ft[:, :, -self.modes1 :, : self.modes2, : self.modes3], self.weights2
-        )
-        # Corner 3: Positive x, Negative y, Positive z
-        out_ft[:, :, : self.modes1, -self.modes2 :, : self.modes3] = self.compl_mul3d(
-            x_ft[:, :, : self.modes1, -self.modes2 :, : self.modes3], self.weights3
-        )
-        # Corner 4: Negative x, Negative y, Positive z
-        out_ft[:, :, -self.modes1 :, -self.modes2 :, : self.modes3] = self.compl_mul3d(
-            x_ft[:, :, -self.modes1 :, -self.modes2 :, : self.modes3], self.weights4
-        )
-
-        return fft.irfftn(out_ft, s=(x.shape[-3], x.shape[-2], x.shape[-1]))
-
-
 class FourierLayer(nn.Module):
     """Single Fourier layer with spectral branch, pointwise skip, normalization, and activation."""
 
@@ -409,8 +177,6 @@ class FourierLayer(nn.Module):
 
         dim = len(modes)
 
-        assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
-
         self.skip_weight = PointwiseMLP(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -418,7 +184,7 @@ class FourierLayer(nn.Module):
             nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
-        self.spectral_conv = SpectralConv.create(in_channels, out_channels, modes)
+        self.spectral_conv = SpectralConv(in_channels, out_channels, modes)
         self.bn = build_normalization(norm_class, out_channels, dim)
         self.nonlinearity = build_activation(nonlinearity)
 
@@ -481,8 +247,8 @@ class FNO(nn.Module):
         """
         super().__init__()
 
-        dim = len(modes)
-        assert dim in (1, 2, 3), "Only 1D, 2D and 3D FNO are supported"
+        if len(modes) == 0:
+            raise ValueError("modes must contain at least one spatial dimension.")
         self.padding = self._validate_padding(padding, modes)
 
         self.lift = PointwiseMLP(
@@ -513,6 +279,26 @@ class FNO(nn.Module):
             nonlinearity=nonlinearity,
             dropout=pointwise_dropout,
         )
+
+    def forward(self, vt: torch.Tensor) -> torch.Tensor:
+        """Runs the full FNO forward pass.
+
+        Args:
+            vt: Input tensor of shape `(batch, in_channels, *spatial)`.
+
+        Returns:
+            Output tensor of shape `(batch, out_channels, *spatial)`.
+        """
+        # vt: (batch, in_channels, *spatial)
+        lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
+        padded, pad_sizes = self._pad_spatial(lifted, self.padding)
+        fouriered = padded
+        for layer in self.fourier_layers:
+            fouriered = layer(fouriered)  # (batch, layer_shapes[i], *spatial)
+        if pad_sizes is not None:
+            fouriered = self._unpad_spatial(fouriered, pad_sizes)
+        projected = self.project(fouriered)  # (batch, out_channels, *spatial)
+        return projected
 
     @staticmethod
     def _validate_padding(
@@ -574,26 +360,6 @@ class FNO(nn.Module):
             else:
                 slices.append(slice(size, -size))
         return x[tuple(slices)]
-
-    def forward(self, vt: torch.Tensor) -> torch.Tensor:
-        """Runs the full FNO forward pass.
-
-        Args:
-            vt: Input tensor of shape `(batch, in_channels, *spatial)`.
-
-        Returns:
-            Output tensor of shape `(batch, out_channels, *spatial)`.
-        """
-        # vt: (batch, in_channels, *spatial)
-        lifted = self.lift(vt)  # (batch, layer_shapes[0], *spatial)
-        padded, pad_sizes = self._pad_spatial(lifted, self.padding)
-        fouriered = padded
-        for layer in self.fourier_layers:
-            fouriered = layer(fouriered)  # (batch, layer_shapes[i], *spatial)
-        if pad_sizes is not None:
-            fouriered = self._unpad_spatial(fouriered, pad_sizes)
-        projected = self.project(fouriered)  # (batch, out_channels, *spatial)
-        return projected
 
 
 class LpLoss:
