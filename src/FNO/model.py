@@ -6,6 +6,9 @@ import torch.nn.functional as F
 from src.utils import build_activation, build_normalization
 
 
+# TODO consider using (batch, *spatial, channels) format for better pointwise MLP
+
+
 class SpectralConv(nn.Module):
     """N-dimensional spectral convolution using fftshift-centered mode selection."""
 
@@ -53,7 +56,6 @@ class SpectralConv(nn.Module):
             raise ValueError(
                 f"Input has {len(spatial_shape)} spatial dims but modes has {len(modes)}."
             )
-
         # Because it's rfft, last dim is truncated to floor(N/2)+1, 0 to Nyquist freq
         # The other dims go from [-N/2, N/2) with low freqs in the center
         shifted_shape = (*spatial_shape[:-1], spatial_shape[-1] // 2 + 1)
@@ -106,6 +108,7 @@ class SpectralConv(nn.Module):
 
         if len(fft_dims) > 1:
             out_ft = fft.ifftshift(out_ft, dim=fft_dims[:-1])
+
         return fft.irfftn(out_ft, s=spatial_shape, dim=fft_dims)
 
 
@@ -125,7 +128,7 @@ class PointwiseMLP(nn.Module):
         Args:
             in_channels: Number of input channels.
             out_channels: Number of output channels.
-            hidden_dims: Hidden layer channel sizes used by intermediate pointwise linear layers.
+            hidden_dims: Hidden layer channel sizes used by intermediate pointwise 1x1 convolutions.
             nonlinearity: Activation name used between hidden layers.
                 Supported values: "relu", "gelu", "silu", "tanh", "elu", "leaky_relu".
             dropout: Dropout rate applied after hidden activations.
@@ -139,7 +142,7 @@ class PointwiseMLP(nn.Module):
 
         layers: list[nn.Module] = []
         for idx, (in_c, out_c) in enumerate(zip(channels[:-1], channels[1:])):
-            layers.append(nn.Linear(in_c, out_c))
+            layers.append(nn.Conv1d(in_c, out_c, kernel_size=1))
 
             if not idx == len(channels) - 2:  # No activation or dropout on last layer.
                 layers.append(build_activation(nonlinearity))
@@ -149,7 +152,7 @@ class PointwiseMLP(nn.Module):
         self.network = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Applies the pointwise MLP over flattened spatial tokens.
+        """Applies the pointwise MLP over flattened spatial points.
 
         Args:
             x: Input tensor of shape `(batch, channels, *spatial)`.
@@ -157,11 +160,11 @@ class PointwiseMLP(nn.Module):
         Returns:
             Output tensor of shape `(batch, out_channels, *spatial)`.
         """
-        # x: (batch, channels, *spatial). Flatten spatial axes into tokens.
+        # x: (batch, channels, *spatial). Flatten spatial axes into a 1D grid.
         _, _, *spatial_shape = x.shape
-        tokens = x.flatten(start_dim=2).transpose(1, 2)  # (batch, n_tokens, channels)
-        tokens = self.network(tokens)
-        return tokens.transpose(1, 2).unflatten(2, spatial_shape)
+        points = x.flatten(start_dim=2)  # (batch, channels, n_points)
+        points = self.network(points)
+        return points.unflatten(2, spatial_shape)
 
 
 class FourierLayer(nn.Module):

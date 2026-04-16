@@ -1,5 +1,7 @@
 import argparse
 
+from src.data.providers_builtin import register_builtin_datasets
+from src.data.registry import generate_raw_data, list_datasets
 from src.data.data_visualization import (
     visualize_burgers_comparison,
     visualize_burgers_samples,
@@ -10,32 +12,27 @@ from src.data.data_visualization import (
     visualize_navier_stokes_samples,
     visualize_navier_stokes_statistics,
 )
-from src.data.generate_data import (
-    generate_burgers_data,
-    generate_darcy_data,
-    generate_navier_stokes_data,
-)
 
 
 def _get_visualization_registry():
     return {
         "darcy": {
             "title": "Darcy Flow",
-            "generator": generate_darcy_data,
             "sample_plotters": [visualize_darcy_samples],
             "stats_plotters": [visualize_darcy_statistics],
             "plots_arg": "n_plots",
         },
         "burgers": {
             "title": "Burgers 1-D",
-            "generator": generate_burgers_data,
-            "sample_plotters": [visualize_burgers_samples, visualize_burgers_comparison],
+            "sample_plotters": [
+                visualize_burgers_samples,
+                visualize_burgers_comparison,
+            ],
             "stats_plotters": [visualize_burgers_statistics],
             "plots_arg": "n_plots",
         },
         "navier_stokes": {
             "title": "Navier-Stokes",
-            "generator": generate_navier_stokes_data,
             "sample_plotters": [
                 visualize_navier_stokes_samples,
                 visualize_navier_stokes_difference,
@@ -47,12 +44,19 @@ def _get_visualization_registry():
 
 
 def get_parser() -> argparse.ArgumentParser:
+    register_builtin_datasets()
+    visualizable = sorted(
+        set(_get_visualization_registry().keys())
+        & set(list_datasets(require_raw_generator=True))
+    )
+
     parser = argparse.ArgumentParser(description="Visualize generated PDE datasets")
     parser.add_argument(
         "--datasets",
         nargs="+",
-        default=["darcy", "burgers"],
-        choices=["burgers", "darcy", "navier_stokes"],
+        default=[name for name in ["darcy", "burgers"] if name in visualizable]
+        or visualizable,
+        choices=visualizable,
         help="Datasets to visualize",
     )
     parser.add_argument("--n_samples", type=int, default=100)
@@ -69,7 +73,7 @@ def main() -> None:
     for dataset_name in args.datasets:
         config = registry[dataset_name]
         print(f"Loading {config['title']} data …")
-        data = config["generator"](n_samples=args.n_samples)
+        data = generate_raw_data(dataset_name, n_samples=args.n_samples)
 
         n_plots = getattr(args, config["plots_arg"])
         for plotter in config["sample_plotters"]:

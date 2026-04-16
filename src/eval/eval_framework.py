@@ -2,7 +2,8 @@ from types import SimpleNamespace
 import torch
 from torch.utils.data import DataLoader
 
-from src.data.pytorch_data import get_dataset
+from src.data.providers_builtin import register_builtin_datasets
+from src.data.registry import build_train_test_split_from_args
 from src.utils import set_seed, load_model_from_checkpoint
 
 from src.eval.evaluate import evaluate_models
@@ -42,7 +43,17 @@ def evaluate_from_checkpoints(
         train_split=train_split,
     )
 
-    _, test_dataset, _, dim = get_dataset(args, n_samples=n_samples)
+    register_builtin_datasets()
+    _, test_dataset, spec = build_train_test_split_from_args(
+        args,
+        n_samples=n_samples,
+    )
+    if spec.spatial_dim is None:
+        raise ValueError(
+            f"Dataset '{args.dataset}' does not define spatial_dim and cannot be evaluated."
+        )
+    dim = spec.spatial_dim
+
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     print(

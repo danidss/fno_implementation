@@ -71,11 +71,9 @@ class OriginalFNO(nn.Module):
             # Approximate our lift/projection channel widths via neuralop ratios
             lifting_channel_ratio=lifting_channel_ratio,
             projection_channel_ratio=projection_channel_ratio,
-            # Best-effort mapping from our normalization choices to neuralop options
+            # Semi-equal hpp
             norm=norm,
-            # Match our nonlinearity
             non_linearity=non_linearity,
-            # Optional domain padding to match our implementation behavior
             domain_padding=padding,
             # Do not append coordinate channels (we add them manually for now)
             positional_embedding=None,

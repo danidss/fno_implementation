@@ -9,7 +9,8 @@ from torch.utils.data import DataLoader
 from src.FNO.train import train_model
 from src.FNO.model import FNO
 from src.FNO.original_model import OriginalFNO
-from src.data.pytorch_data import get_dataset
+from src.data.providers_builtin import register_builtin_datasets
+from src.data.registry import build_train_test_split_from_args
 from src.eval.evaluate import generate_prediction_plots
 from src.utils import set_seed, load_model_from_checkpoint
 
@@ -36,10 +37,18 @@ def main(cfg: DictConfig) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_dataset, test_dataset, in_channels, dim = get_dataset(
+    register_builtin_datasets()
+    train_dataset, test_dataset, spec = build_train_test_split_from_args(
         cfg.data,
-        cfg.data.n_samples,
+        n_samples=cfg.data.n_samples,
     )
+    if spec.input_channels is None or spec.spatial_dim is None:
+        raise ValueError(
+            f"Dataset '{cfg.data.dataset}' is not trainable because input_channels/spatial_dim are undefined."
+        )
+    in_channels = spec.input_channels
+    dim = spec.spatial_dim
+
     print(
         f"Loaded {cfg.data.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
     )

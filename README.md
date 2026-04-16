@@ -48,8 +48,10 @@ fno_implementation/
 │   │   └── train.py           # Training loop (reusable function)
 │   │
 │   ├── data/                  # Data generation and loading
-│   │   ├── generate_data.py   # PDE solvers (Burgers, Darcy, NS)
-│   │   ├── pytorch_data.py    # PyTorch dataset classes
+│   │   ├── registry.py        # Dataset registration, discovery, and train/test splitting
+│   │   ├── providers_builtin.py # Built-in dataset registrations
+│   │   ├── datasets.py        # TensorDataset builders for operator learning
+│   │   ├── sources/           # Raw data sources (synthetic or external)
 │   │   └── data_visualization.py  # Plotting utilities
 │   │
 │   ├── eval/                  # Evaluation framework
@@ -87,6 +89,20 @@ fno_implementation/
 
 ### Data Format
 All datasets are cached in HDF5 format under `generated_data/` with automatic incremental generation—request 1000 samples, then later request 1500, and only 500 new samples are generated and appended.
+
+### Registry-Only Data System
+
+The codebase uses a single data system centered on `src.data.registry`.
+
+- Register datasets with metadata (`input_channels`, `spatial_dim`) and hooks:
+  - `build_dataset(...)` for train/eval tensors
+  - `generate_raw(...)` for generation/visualization pipelines
+- Discover datasets at runtime (`list_datasets(...)`) for CLI choices.
+- Build deterministic train/test splits via:
+  - `build_train_test_split(...)`
+  - `build_train_test_split_from_args(...)`
+
+Legacy compatibility wrappers were removed. All scripts and evaluation code call the registry APIs directly.
 
 ## Usage
 
@@ -147,8 +163,9 @@ python -m scripts.train_fno \
 ```
 
 **Key Parameters (YAML path):**
-- `data.dataset`: {burgers, darcy} - PDE to solve
+- `data.dataset`: Registered dataset name (e.g., `burgers`, `darcy`, `fd_bench`)
 - `data.n_samples`: Total samples to generate/use
+- `data.dataset_kwargs`: Optional dataset-provider arguments
 - `model.implementation`: {ours, original}
 - `model.modes`: Fourier modes to retain
 - `model.width`: Hidden channel width
@@ -244,7 +261,7 @@ This allows automatic model reconstruction during evaluation.
 
 3. **Train model**:
    ```bash
-   python -m scripts.train_fno --dataset burgers --epochs 500
+  python -m scripts.train_fno data.dataset=burgers training.epochs=500
    ```
 
 4. **Evaluate**:
