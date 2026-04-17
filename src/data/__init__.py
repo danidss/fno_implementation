@@ -8,7 +8,7 @@ from .data_visualization import (
 	visualize_navier_stokes_samples,
 	visualize_navier_stokes_statistics,
 )
-from .datasets import build_burgers_dataset, build_darcy_dataset
+from .datasets import build_burgers_dataset, build_darcy_dataset, build_fd_bench_dataset
 from .providers_builtin import register_builtin_datasets
 from .registry import (
     build_train_test_split,
@@ -37,6 +37,7 @@ __all__ = [
     "generate_raw_data",
     "build_burgers_dataset",
     "build_darcy_dataset",
+    "build_fd_bench_dataset",
     "visualize_burgers_samples",
     "visualize_burgers_comparison",
     "visualize_burgers_statistics",

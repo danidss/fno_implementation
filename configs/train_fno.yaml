@@ -8,6 +8,7 @@ data:
   train_split: 0.8333333333
   dataset: burgers
   subsample: 8
+  dataset_kwargs: {}
 
 model:
   implementation: ours

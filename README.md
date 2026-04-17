@@ -7,6 +7,7 @@ A clean, modular implementation of Fourier Neural Operators for learning solutio
 This implementation supports:
 - **1D PDEs**: Burgers' equation
 - **2D PDEs**: Darcy Flow (training/evaluation), Navier-Stokes (data generation/visualization)
+- **FD-Bench datasets**: FD-Bench-compatible HDF5 loading for public PDEBench/poseidon style files
 - **Comparison** with the original FNO implementation from [Zongyi Li et al.](https://github.com/zongyi-li/fourier_neural_operator)
 
 ## Installation
@@ -39,7 +40,8 @@ fno_implementation/
 │   ├── evaluate_fno.py        # Evaluate and compare models
 │   ├── generate_data.py       # Generate PDE datasets
 │   ├── visualize_data.py      # Visualize datasets
-│   └── inspect_dataset.py     # Inspect dataset properties
+│   ├── inspect_dataset.py     # Inspect dataset properties
+│   └── download_fd_bench_data.py # Download FD-Bench source files
 │
 ├── src/                        # Core functionality
 │   ├── FNO/                   # FNO model and training
@@ -121,6 +123,33 @@ python -m scripts.generate_data --datasets burgers darcy \
 
 **Output**: `generated_data/burgers_*.h5`, `generated_data/darcy_*.h5`
 
+### FD-Bench: Data Investigation and Setup
+
+FD-Bench (arXiv:2505.20349) states two data sources:
+- Public datasets: PDEBench (CNS/DR) and Poseidon collection (KF).
+- Self-generated datasets: hosted on HuggingFace.
+
+In the public anonymous release, exact HuggingFace org IDs are redacted (`xxxxxx/...`).
+This repository therefore supports FD-Bench with a practical path:
+1. Download a concrete `.h5/.hdf5` file from your source URL (or manually place it locally).
+2. Point `data.dataset_kwargs.file_path` to that file.
+3. Train/evaluate using `data.dataset=fd_bench`.
+
+Download helper examples:
+
+```bash
+# Direct URL download to generated_data/fd_bench/
+python -m scripts.download_fd_bench_data \
+  --mode url \
+  --url "https://.../2D_CFD_Rand_M0.1_Eta1e-08_Zeta1e-08_periodic_512_Train.hdf5"
+
+# Optional: export a HuggingFace dataset split to disk (requires `pip install datasets`)
+python -m scripts.download_fd_bench_data \
+  --mode hf \
+  --hf_dataset "org_or_user/dataset_name" \
+  --hf_split train
+```
+
 ### 2. Inspect Dataset Properties
 
 ```bash
@@ -166,6 +195,7 @@ python -m scripts.train_fno \
 - `data.dataset`: Registered dataset name (e.g., `burgers`, `darcy`, `fd_bench`)
 - `data.n_samples`: Total samples to generate/use
 - `data.dataset_kwargs`: Optional dataset-provider arguments
+  - FD-Bench key args: `file_path`, `temporal_subsample`, `include_nu_channel`, `append_grid`, `normalize`
 - `model.implementation`: {ours, original}
 - `model.modes`: Fourier modes to retain
 - `model.width`: Hidden channel width

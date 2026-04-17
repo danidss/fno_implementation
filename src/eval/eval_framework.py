@@ -10,7 +10,7 @@ from src.eval.evaluate import evaluate_models
 
 
 def _validate_compatible_checkpoints(hp_a: dict, hp_b: dict) -> None:
-    keys = ("dataset", "subsample", "dim")
+    keys = ("dataset", "subsample", "dim", "out_channels", "dataset_kwargs")
     for key in keys:
         if hp_a.get(key) != hp_b.get(key):
             raise ValueError(
@@ -41,6 +41,7 @@ def evaluate_from_checkpoints(
         dataset=hp_a["dataset"],
         subsample=hp_a.get("subsample", 1),
         train_split=train_split,
+        dataset_kwargs=hp_a.get("dataset_kwargs", {}),
     )
 
     register_builtin_datasets()
@@ -48,11 +49,7 @@ def evaluate_from_checkpoints(
         args,
         n_samples=n_samples,
     )
-    if spec.spatial_dim is None:
-        raise ValueError(
-            f"Dataset '{args.dataset}' does not define spatial_dim and cannot be evaluated."
-        )
-    dim = spec.spatial_dim
+    dim = spec.dim
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 

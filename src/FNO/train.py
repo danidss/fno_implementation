@@ -14,8 +14,9 @@ def train_model(
     train_loader: DataLoader,
     test_loader: DataLoader,
     device: torch.device,
-    dim: int,
     in_channels: int,
+    out_channels: int,
+    dim: int,
     checkpoint_path: str,
 ) -> None:
     """
@@ -27,8 +28,9 @@ def train_model(
         train_loader: Training data generator.
         test_loader: Validation data generator.
         device: CPU or CUDA device.
-        dim: Dimensionality of spatial domain.
         in_channels: Feature count of input.
+        out_channels: Feature count of output.
+        dim: Dimensionality of spatial domain.
         checkpoint_path: Storage path for best model.
     """
     # Standard configuration from the paper
@@ -98,7 +100,8 @@ def train_model(
             "width": cfg.model.width,
             "layers": cfg.model.layers,
             "in_channels": in_channels,
-            "out_channels": 1,
+            "out_channels": out_channels,
+            "dim": dim,
             "dataset": cfg.data.dataset,
             "subsample": cfg.data.subsample,
             "implementation": cfg.model.implementation,

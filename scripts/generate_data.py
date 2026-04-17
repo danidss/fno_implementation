@@ -1,4 +1,5 @@
 import argparse
+import json
 
 from src.data.providers_builtin import register_builtin_datasets
 from src.data.registry import generate_raw_data, list_datasets
@@ -21,6 +22,12 @@ def get_parser() -> argparse.ArgumentParser:
         help="Datasets to generate",
     )
     parser.add_argument("--n_samples", type=int, default=1000)
+    parser.add_argument(
+        "--dataset_kwargs_json",
+        type=str,
+        default="{}",
+        help="JSON mapping passed to data providers (e.g. {'file_path': '...'} for fd_bench).",
+    )
     parser.add_argument("--burgers_samples", type=int, default=1000)
     parser.add_argument("--darcy_samples", type=int, default=1000)
     parser.add_argument("--navier_stokes_samples", type=int, default=100)
@@ -30,6 +37,7 @@ def get_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = get_parser()
     args = parser.parse_args()
+    dataset_kwargs = json.loads(args.dataset_kwargs_json)
 
     set_seed()
     register_builtin_datasets()
@@ -43,7 +51,7 @@ def main() -> None:
     for dataset_name in args.datasets:
         n_samples = samples_per_dataset.get(dataset_name, args.n_samples)
         print(f"Generating {dataset_name} data...")
-        generate_raw_data(dataset_name, n_samples=n_samples)
+        generate_raw_data(dataset_name, n_samples=n_samples, **dataset_kwargs)
 
 
 if __name__ == "__main__":

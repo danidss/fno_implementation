@@ -41,7 +41,11 @@ class OriginalFNO(nn.Module):
         """
         super().__init__()
 
-        if len(modes) not in (1, 2, 3):
+        self.dim = len(modes)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        if self.dim not in (1, 2, 3):
             raise ValueError(
                 f"Unsupported dimension inferred from modes={modes}. Expected 1D, 2D or 3D modes tuple."
             )

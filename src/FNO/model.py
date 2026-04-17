@@ -29,7 +29,6 @@ class SpectralConv(nn.Module):
                 f"Each entry in modes must be positive. Received modes={modes}."
             )
 
-        self.in_channels = in_channels
         self.out_channels = out_channels
         self.modes = tuple(int(mode) for mode in modes)
 

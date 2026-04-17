@@ -42,12 +42,10 @@ def main(cfg: DictConfig) -> None:
         cfg.data,
         n_samples=cfg.data.n_samples,
     )
-    if spec.input_channels is None or spec.spatial_dim is None:
-        raise ValueError(
-            f"Dataset '{cfg.data.dataset}' is not trainable because input_channels/spatial_dim are undefined."
-        )
+    # Standardized metadata from registry
     in_channels = spec.input_channels
-    dim = spec.spatial_dim
+    out_channels = spec.out_channels
+    dim = spec.dim
 
     print(
         f"Loaded {cfg.data.dataset} dataset. Train size: {len(train_dataset)}, Test size: {len(test_dataset)}"
@@ -68,8 +66,9 @@ def main(cfg: DictConfig) -> None:
         "modes": cfg.model.modes,
         "width": cfg.model.width,
         "layers": cfg.model.layers,
+        "dim": dim,
         "in_channels": in_channels,
-        "out_channels": 1,
+        "out_channels": out_channels,
         "norm_class": OmegaConf.select(cfg, "model.norm_class", default="none"),
         "nonlinearity": OmegaConf.select(cfg, "model.nonlinearity", default="relu"),
         "lift_hidden_dims": tuple(
@@ -87,8 +86,21 @@ def main(cfg: DictConfig) -> None:
         "padding": OmegaConf.select(cfg, "model.padding", default=0.0),
         "dataset": cfg.data.dataset,
         "subsample": OmegaConf.select(cfg, "data.subsample", default=None),
+        "dataset_kwargs": {},
         "implementation": cfg.model.implementation,
     }
+
+    dataset_kwargs_cfg = OmegaConf.select(cfg, "data.dataset_kwargs", default={})
+    if OmegaConf.is_config(dataset_kwargs_cfg):
+        hp["dataset_kwargs"] = (
+            OmegaConf.to_container(dataset_kwargs_cfg, resolve=True) or {}
+        )
+    elif isinstance(dataset_kwargs_cfg, dict):
+        hp["dataset_kwargs"] = dict(dataset_kwargs_cfg)
+    elif dataset_kwargs_cfg is None:
+        hp["dataset_kwargs"] = {}
+    else:
+        raise TypeError("data.dataset_kwargs must be a mapping")
 
     checkpoint_path = os.path.join(
         cfg.model.models_folder,
@@ -104,7 +116,7 @@ def main(cfg: DictConfig) -> None:
         model = FNO(
             modes=modes,
             in_channels=hp["in_channels"],
-            out_channels=1,
+            out_channels=hp["out_channels"],
             layer_shapes=layer_shapes,
             norm_class=hp.get("norm_class", "none"),
             nonlinearity=hp.get("nonlinearity", "relu"),
@@ -119,7 +131,7 @@ def main(cfg: DictConfig) -> None:
             modes=modes,
             layer_shapes=layer_shapes,
             in_channels=hp["in_channels"],
-            out_channels=1,
+            out_channels=hp["out_channels"],
             norm_class=hp.get("norm_class", "none"),
             nonlinearity=hp.get("nonlinearity", "relu"),
             lift_hidden_dims=tuple(hp.get("lift_hidden_dims", ())),
@@ -136,8 +148,9 @@ def main(cfg: DictConfig) -> None:
             train_loader,
             test_loader,
             device,
-            dim,
             in_channels,
+            out_channels,
+            dim,
             checkpoint_path=checkpoint_path,
         )
     finally:

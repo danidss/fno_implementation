@@ -146,7 +146,7 @@ def load_model_from_checkpoint(
         model = FNO(
             modes=modes,
             in_channels=hp["in_channels"],
-            out_channels=1,
+            out_channels=hp.get("out_channels", 1),
             layer_shapes=layer_shapes,
             norm_class=hp.get("norm_class", "none"),
             nonlinearity=hp.get("nonlinearity", "relu"),
@@ -162,7 +162,7 @@ def load_model_from_checkpoint(
             modes=modes,
             layer_shapes=layer_shapes,
             in_channels=hp["in_channels"],
-            out_channels=1,
+            out_channels=hp.get("out_channels", 1),
             norm_class=hp.get("norm_class", "none"),
             nonlinearity=hp.get("nonlinearity", "relu"),
             lift_hidden_dims=tuple(hp.get("lift_hidden_dims", ())),

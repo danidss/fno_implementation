@@ -14,8 +14,9 @@ DatasetBuilder = Callable[..., Dataset]
 @dataclass(frozen=True)
 class DatasetSpec:
     name: str
-    input_channels: int | None
-    spatial_dim: int | None
+    input_channels: int
+    out_channels: int
+    dim: int
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,9 @@ _REGISTRY: dict[str, DatasetRegistration] = {}
 def register_dataset(
     *,
     name: str,
-    input_channels: int | None,
-    spatial_dim: int | None,
+    input_channels: int,
+    out_channels: int,
+    dim: int,
     build_dataset: DatasetBuilder | None = None,
     generate_raw: RawGenerator | None = None,
     overwrite: bool = False,
@@ -50,7 +52,8 @@ def register_dataset(
         spec=DatasetSpec(
             name=normalized,
             input_channels=input_channels,
-            spatial_dim=spatial_dim,
+            out_channels=out_channels,
+            dim=dim,
         ),
         build_dataset=build_dataset,
         generate_raw=generate_raw,
@@ -140,7 +143,8 @@ def build_train_test_split(
         generator=torch.Generator().manual_seed(split_seed),
     )
 
-    return train_dataset, test_dataset, get_dataset_spec(name)
+    spec = get_dataset_spec(name)
+    return train_dataset, test_dataset, spec
 
 
 def build_train_test_split_from_args(
