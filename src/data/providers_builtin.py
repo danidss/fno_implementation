@@ -1,10 +1,12 @@
 import warnings
+from typing import Any, Callable
 
 
 from .datasets import build_burgers_dataset, build_darcy_dataset, build_fd_bench_dataset
 from .registry import register_dataset
 from .sources import (
-    generate_fd_bench_raw,
+    get_fd_bench_dataset_preset,
+    list_fd_bench_datasets,
     generate_burgers_data,
     generate_darcy_data,
     generate_navier_stokes_data,
@@ -12,6 +14,18 @@ from .sources import (
 
 
 _BOOTSTRAPPED = False
+
+
+def _build_fd_bench_builder(fd_dataset: str) -> Callable[..., Any]:
+    def _builder(*, n_samples: int, subsample: int = 1, **kwargs: Any):
+        return build_fd_bench_dataset(
+            n_samples=n_samples,
+            subsample=subsample,
+            fd_dataset=fd_dataset,
+            **kwargs,
+        )
+
+    return _builder
 
 
 def register_builtin_datasets() -> None:
@@ -47,14 +61,16 @@ def register_builtin_datasets() -> None:
         generate_raw=generate_navier_stokes_data,
         overwrite=False,
     )
-    register_dataset(
-        name="fd_bench",
-        input_channels=4,
-        out_channels=2,
-        dim=2,
-        build_dataset=build_fd_bench_dataset,
-        generate_raw=generate_fd_bench_raw,
-        overwrite=False,
-    )
+    for fd_name in list_fd_bench_datasets():
+        preset = get_fd_bench_dataset_preset(fd_name)
+        register_dataset(
+            name=str(preset["registry_name"]),
+            input_channels=int(preset["input_channels"]),
+            out_channels=int(preset["out_channels"]),
+            dim=int(preset["spatial_dim"]),
+            build_dataset=_build_fd_bench_builder(fd_name),
+            generate_raw=None,
+            overwrite=False,
+        )
 
     _BOOTSTRAPPED = True

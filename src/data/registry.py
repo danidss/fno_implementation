@@ -102,6 +102,38 @@ def build_dataset(name: str, *, n_samples: int, subsample: int = 1, **kwargs: An
     )
 
 
+def _infer_effective_spec(dataset: Dataset, fallback: DatasetSpec) -> DatasetSpec:
+    input_channels = getattr(dataset, "input_channels", None)
+    out_channels = getattr(dataset, "out_channels", None)
+    dim = getattr(dataset, "spatial_dim", None)
+
+    if input_channels is not None and out_channels is not None and dim is not None:
+        return DatasetSpec(
+            name=fallback.name,
+            input_channels=int(input_channels),
+            out_channels=int(out_channels),
+            dim=int(dim),
+        )
+
+    sample = dataset[0]
+    if not isinstance(sample, tuple) or len(sample) != 2:
+        return fallback
+
+    x, y = sample
+    if not isinstance(x, torch.Tensor) or not isinstance(y, torch.Tensor):
+        return fallback
+
+    if x.ndim < 2 or y.ndim < 2:
+        return fallback
+
+    return DatasetSpec(
+        name=fallback.name,
+        input_channels=int(x.shape[0]),
+        out_channels=int(y.shape[0]),
+        dim=int(x.ndim - 1),
+    )
+
+
 def generate_raw_data(name: str, *, n_samples: int, **kwargs: Any) -> dict[str, Any]:
     registration = get_registration(name)
     if registration.generate_raw is None:
@@ -143,7 +175,7 @@ def build_train_test_split(
         generator=torch.Generator().manual_seed(split_seed),
     )
 
-    spec = get_dataset_spec(name)
+    spec = _infer_effective_spec(dataset, get_dataset_spec(name))
     return train_dataset, test_dataset, spec
 
 

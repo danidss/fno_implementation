@@ -1,45 +1,33 @@
 import argparse
 
-from src.data.sources import download_fd_bench_data, download_fd_bench_from_hf
+from src.data.sources import list_fd_bench_datasets, setup_fd_bench_dataset
 
 
 def get_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Download FD-Bench data")
-    parser.add_argument(
-        "--mode",
-        choices=["url", "hf"],
-        default="url",
-        help="Download source mode: direct URL or HuggingFace datasets.",
+    parser = argparse.ArgumentParser(
+        description="Inspect/setup HuggingFace FD-Bench presets (download is disabled)."
     )
     parser.add_argument(
-        "--url",
+        "--dataset",
+        choices=list_fd_bench_datasets(),
+        default=None,
+        help="FD-Bench preset name to inspect or check.",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all available FD-Bench presets.",
+    )
+    parser.add_argument(
+        "--split",
         type=str,
         default=None,
-        help="Direct URL to an FD-Bench-compatible .h5/.hdf5 file.",
+        help="Optional split override when checking a preset.",
     )
     parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="generated_data/fd_bench",
-        help="Directory where downloaded files are stored.",
-    )
-    parser.add_argument(
-        "--file_name",
-        type=str,
-        default=None,
-        help="Optional output file name for URL mode.",
-    )
-    parser.add_argument(
-        "--hf_dataset",
-        type=str,
-        default=None,
-        help="HuggingFace dataset ID for mode=hf.",
-    )
-    parser.add_argument(
-        "--hf_split",
-        type=str,
-        default="train",
-        help="HuggingFace split to export for mode=hf.",
+        "--check_access",
+        action="store_true",
+        help="Try loading the HuggingFace split to validate runtime access.",
     )
     return parser
 
@@ -47,25 +35,27 @@ def get_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = get_parser().parse_args()
 
-    if args.mode == "url":
-        if not args.url:
-            raise ValueError("--url is required when --mode url")
-        output = download_fd_bench_data(
-            url=args.url,
-            output_dir=args.output_dir,
-            file_name=args.file_name,
-        )
-        print(f"Downloaded FD-Bench data to: {output}")
+    if args.list:
+        for name in list_fd_bench_datasets():
+            print(name)
         return
 
-    if not args.hf_dataset:
-        raise ValueError("--hf_dataset is required when --mode hf")
-    output = download_fd_bench_from_hf(
-        dataset_id=args.hf_dataset,
-        output_dir=args.output_dir,
-        split=args.hf_split,
+    if not args.dataset:
+        raise ValueError("Use --list or provide --dataset <name>")
+
+    cfg = setup_fd_bench_dataset(
+        fd_dataset=args.dataset,
+        split=args.split,
+        check_access=args.check_access,
     )
-    print(f"Exported HuggingFace dataset to: {output}")
+    print(f"Preset: {cfg['fd_dataset']}")
+    print(f"Registry name: {cfg['registry_name']}")
+    print(f"HF dataset: {cfg['hf_dataset_id']}")
+    print(f"Split: {cfg['split']}")
+    print(f"Spatial dim: {cfg['spatial_dim']}")
+    print(f"Input channels: {cfg['input_channels']}")
+    print(f"Output channels: {cfg['out_channels']}")
+    print(f"Access check: {'ok' if args.check_access else 'skipped'}")
 
 
 if __name__ == "__main__":

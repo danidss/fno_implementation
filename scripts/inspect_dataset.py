@@ -19,7 +19,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--dataset_kwargs_json",
         type=str,
         default="{}",
-        help="JSON mapping passed to registry dataset builder (e.g. {'file_path': '...'}).",
+        help="JSON mapping passed to registry dataset builder.",
     )
     return parser
 

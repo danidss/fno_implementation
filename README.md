@@ -1,312 +1,285 @@
 # Fourier Neural Operator (FNO) Implementation
 
-A clean, modular implementation of Fourier Neural Operators for learning solution operators of parametric PDEs. This repository includes training, evaluation, data generation, and visualization utilities.
+Modular Fourier Neural Operator training and evaluation pipeline for PDE operator learning, with synthetic datasets (Burgers, Darcy, Navier-Stokes) and FD-Bench/PDEBench-style HDF5 ingestion.
 
-## Overview
+## What This Repository Includes
 
-This implementation supports:
-- **1D PDEs**: Burgers' equation
-- **2D PDEs**: Darcy Flow (training/evaluation), Navier-Stokes (data generation/visualization)
-- **FD-Bench datasets**: FD-Bench-compatible HDF5 loading for public PDEBench/poseidon style files
-- **Comparison** with the original FNO implementation from [Zongyi Li et al.](https://github.com/zongyi-li/fourier_neural_operator)
+- FNO implementations:
+  - `ours`: custom architecture in `src/FNO/model.py`
+  - `original`: wrapper around `neuraloperator` in `src/FNO/original_model.py`
+- Data system based on registry APIs in `src/data/registry.py`
+- Reproducible CLI scripts for generation, inspection, training, evaluation, and visualization
+- FD-Bench-compatible data ingestion from local `.h5/.hdf5` files
 
-## Installation
+## Quick Start
 
-### Requirements
-- Python 3.10+
-- PyTorch with CUDA support (optional, CPU works too)
-- Dependencies listed in `requirements.txt`
-
-### Setup
+### 1. Environment Setup
 
 ```bash
-# Clone and navigate to the directory
-cd fno_implementation
+# From repository root
+python -m venv .venv
 
-# Create virtual environment (Optional but recommended)
-python -m venv .env
-source .env/bin/activate  # On Windows: .env\Scripts\activate
+# Linux/macOS
+source .venv/bin/activate
 
-# Install dependencies
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 ```
 
-## Project Structure
+### 2. Minimal End-to-End Run (Burgers)
+
+```bash
+# Optional data pre-generation
+# If this is not run, data will be generated on-the-fly during training
+python -m scripts.generate_data --datasets burgers --burgers_samples 200
+
+# Inspect shape/channel metadata
+python -m scripts.inspect_dataset --dataset burgers --n_samples 200 --subsample 8
+
+# Train (wandb.run_name is required)
+python -m scripts.train_fno \
+  wandb.run_name=burgers_quick \
+  wandb.mode=disabled \
+  data.dataset=burgers \
+  data.n_samples=200 \
+  training.epochs=5
+
+# Evaluate checkpoint
+python -m scripts.evaluate_fno \
+  --checkpoint_a models/burgers_quick.pth \
+  --n_samples 200 \
+  --n_plots 3
+```
+
+## Repository Map
 
 ```
 fno_implementation/
-├── scripts/                    # Runnable entrypoints (CLI + main logic)
-│   ├── train_fno.py           # Train FNO models
-│   ├── evaluate_fno.py        # Evaluate and compare models
-│   ├── generate_data.py       # Generate PDE datasets
-│   ├── visualize_data.py      # Visualize datasets
-│   ├── inspect_dataset.py     # Inspect dataset properties
-│   └── download_fd_bench_data.py # Download FD-Bench source files
-│
-├── src/                        # Core functionality
-│   ├── FNO/                   # FNO model and training
-│   │   ├── model.py           # Core FNO architecture (1D, 2D, 3D variants)
-│   │   ├── original_model.py  # Wrapper around neuraloperator.models.FNO
-│   │   └── train.py           # Training loop (reusable function)
-│   │
-│   ├── data/                  # Data generation and loading
-│   │   ├── registry.py        # Dataset registration, discovery, and train/test splitting
-│   │   ├── providers_builtin.py # Built-in dataset registrations
-│   │   ├── datasets.py        # TensorDataset builders for operator learning
-│   │   ├── sources/           # Raw data sources (synthetic or external)
-│   │   └── data_visualization.py  # Plotting utilities
-│   │
-│   ├── eval/                  # Evaluation framework
-│   │   ├── eval_framework.py  # Checkpoint loading & eval orchestration
-│   │   └── evaluate.py        # Metrics and comparison logic
-│   │
-│   └── utils.py               # Utilities (checkpointing, seeding, etc.)
-│
-├── generated_data/            # Cached datasets (HDF5 format)
-├── models/                    # Trained checkpoints
-└── plots/                     # Generated evaluation plots
+├── configs/
+│   └── train_fno.yaml                 # Hydra config defaults for training
+├── scripts/
+│   ├── train_fno.py                   # Train and save best checkpoint
+│   ├── evaluate_fno.py                # Evaluate one or two checkpoints
+│   ├── generate_data.py               # Generate/cache raw synthetic datasets
+│   ├── inspect_dataset.py             # Print dataset sample/shape metadata
+│   ├── visualize_data.py              # Plot raw dataset examples/stats
+│   └── download_fd_bench_data.py      # List/check FD-Bench HF presets
+├── src/
+│   ├── FNO/
+│   │   ├── model.py                   # Custom FNO components and model
+│   │   ├── original_model.py          # neuraloperator-backed wrapper model
+│   │   └── train.py                   # Training loop and checkpoint writing
+│   ├── data/
+│   │   ├── registry.py                # Dataset registration and split APIs
+│   │   ├── providers_builtin.py       # Built-in dataset registrations
+│   │   ├── datasets.py                # Dataset builders used by train/eval
+│   │   ├── data_visualization.py      # Plotting utilities
+│   │   └── sources/
+│   │       ├── synthetic.py           # Burgers/Darcy/Navier-Stokes generators
+│   │       └── fd_bench.py            # FD-Bench/PDEBench ingestion utilities
+│   ├── eval/
+│   │   ├── eval_framework.py          # Checkpoint compatibility + orchestration
+│   │   └── evaluate.py                # Metrics and prediction plotting
+│   └── utils.py                       # Seeding, checkpoint loading, helpers
+├── generated_data/                    # Generated/cached HDF5 data
+├── models/                            # Saved checkpoints
+├── plots/                             # Evaluation plots
+└── outputs/                           # Hydra run output folders
 ```
 
-## Datasets
+## Data and Registry System
 
-### Available PDEs
+All scripts use `src.data.registry`.
 
-**Burgers' Equation (1D)**
-- Initial condition: Gaussian Random Field
-- Physics: Nonlinear advection-diffusion
-- Default: 1000 training samples, 8192 spatial points
-- Resolution-invariant: Model trained at 8192 points generalizes to any resolution
+- Built-in registered datasets:
+  - `burgers` (train/eval + raw generation)
+  - `darcy` (train/eval + raw generation)
+  - `navier_stokes` (raw generation only)
+  - `fd_bench_<preset>` entries (train/eval from HuggingFace FD-Bench source)
+- Core registry capabilities:
+  - discover available datasets via `list_datasets(...)`
+  - build train/test tensors via `build_train_test_split_from_args(...)`
+  - generate raw data via `generate_raw_data(...)`
 
-**Darcy Flow (2D)**
-- Random permeability field → pressure solution
-- Physics: Elliptic PDE (steady-state flow through porous media)
-- Default: 1000 training samples, 421×421 grid
-- Dataset split: 80% train, 20% test
+## Script Reference
 
-**Navier-Stokes (2D)**
-- Vorticity formulation
-- Physics: Time-evolving incompressible flow
-- Default: 100 training samples, outputs time evolution at multiple steps
-- 256×256 spatial resolution
+### `scripts/generate_data.py`
 
-### Data Format
-All datasets are cached in HDF5 format under `generated_data/` with automatic incremental generation—request 1000 samples, then later request 1500, and only 500 new samples are generated and appended.
-
-### Registry-Only Data System
-
-The codebase uses a single data system centered on `src.data.registry`.
-
-- Register datasets with metadata (`input_channels`, `spatial_dim`) and hooks:
-  - `build_dataset(...)` for train/eval tensors
-  - `generate_raw(...)` for generation/visualization pipelines
-- Discover datasets at runtime (`list_datasets(...)`) for CLI choices.
-- Build deterministic train/test splits via:
-  - `build_train_test_split(...)`
-  - `build_train_test_split_from_args(...)`
-
-Legacy compatibility wrappers were removed. All scripts and evaluation code call the registry APIs directly.
-
-## Usage
-
-All scripts accept command-line arguments. Use `--help` for detailed options.
-
-### 1. Generate Datasets
+Generates raw synthetic data and caches it under `generated_data/`.
 
 ```bash
-# Generate all default datasets
-python -m scripts.generate_data
-
-# Generate specific datasets with custom sample counts
-python -m scripts.generate_data --datasets burgers darcy \
-  --burgers_samples 2000 --darcy_samples 1500
+python -m scripts.generate_data --datasets burgers darcy
+python -m scripts.generate_data --datasets navier_stokes --navier_stokes_samples 50
 ```
 
-**Output**: `generated_data/burgers_*.h5`, `generated_data/darcy_*.h5`
+Notes:
+- `--dataset_kwargs_json` is passed to the raw generator for each selected dataset.
+- Default dataset list includes synthetic datasets available for raw generation.
 
-### FD-Bench: Data Investigation and Setup
+### `scripts/inspect_dataset.py`
 
-FD-Bench (arXiv:2505.20349) states two data sources:
-- Public datasets: PDEBench (CNS/DR) and Poseidon collection (KF).
-- Self-generated datasets: hosted on HuggingFace.
-
-In the public anonymous release, exact HuggingFace org IDs are redacted (`xxxxxx/...`).
-This repository therefore supports FD-Bench with a practical path:
-1. Download a concrete `.h5/.hdf5` file from your source URL (or manually place it locally).
-2. Point `data.dataset_kwargs.file_path` to that file.
-3. Train/evaluate using `data.dataset=fd_bench`.
-
-Download helper examples:
+Builds train/test splits through the registry and prints sample tensors and metadata.
 
 ```bash
-# Direct URL download to generated_data/fd_bench/
-python -m scripts.download_fd_bench_data \
-  --mode url \
-  --url "https://.../2D_CFD_Rand_M0.1_Eta1e-08_Zeta1e-08_periodic_512_Train.hdf5"
-
-# Optional: export a HuggingFace dataset split to disk (requires `pip install datasets`)
-python -m scripts.download_fd_bench_data \
-  --mode hf \
-  --hf_dataset "org_or_user/dataset_name" \
-  --hf_split train
+python -m scripts.inspect_dataset --dataset burgers --n_samples 1000 --subsample 8
+python -m scripts.inspect_dataset --dataset darcy --n_samples 400 --subsample 2
 ```
 
-### 2. Inspect Dataset Properties
+For HuggingFace FD-Bench presets:
 
 ```bash
-# Check dataset shapes and statistics
-python -m scripts.inspect_dataset --dataset burgers --n_samples 1000
-
-python -m scripts.inspect_dataset --dataset darcy --n_samples 1000 --subsample 2
+python -m scripts.inspect_dataset \
+  --dataset fd_bench_ns0 \
+  --n_samples 100 \
+  --dataset_kwargs_json '{"shuffle":false,"random_time":false}'
 ```
 
-**Output**: Prints input/output shapes, train/test split info, number of channels, spatial dimension.
+### `scripts/visualize_data.py`
 
-### 3. Visualize Datasets
+Plots samples/statistics from raw generators.
 
 ```bash
-# Visualize Darcy Flow and Burgers' equation
-python -m scripts.visualize_data --datasets darcy burgers --n_samples 100
-
-# Visualize only Navier-Stokes with 50 samples
-python -m scripts.visualize_data --datasets navier_stokes --n_samples 50
+python -m scripts.visualize_data --datasets burgers darcy --n_samples 100 --n_plots 5
+python -m scripts.visualize_data --datasets navier_stokes --n_samples 30 --n_plots_navier 3
 ```
 
-**Output**: Interactive Matplotlib windows for samples, statistics, and comparisons.
+### `scripts/train_fno.py`
 
-### 4. Train FNO
+Hydra-driven training entrypoint.
 
-Training uses **Hydra** for configuration and **Weights & Biases** for experiment tracking.
+Important behavior:
+- `wandb.run_name` is required. If omitted, training exits with an error.
+- Checkpoint path is: `model.models_folder/<wandb.run_name>.pth`.
+- `wandb.mode=disabled` allows local runs without online logging.
 
 ```bash
-# Default training (defined in configs/train_fno.yaml)
-python -m scripts.train_fno
-
-# Override hyperparameters via command line
+# Burgers (custom implementation)
 python -m scripts.train_fno \
+  wandb.run_name=fno_burgers \
+  wandb.mode=disabled \
+  data.dataset=burgers \
+  data.n_samples=1200 \
+  data.subsample=8
+
+# Darcy
+python -m scripts.train_fno \
+  wandb.run_name=fno_darcy \
+  wandb.mode=disabled \
   data.dataset=darcy \
-  model.modes=8 \
-  model.width=32 \
-  training.epochs=1000 \
-  training.learning_rate=0.0005 \
-  wandb.project=fno-darcy-runs
+  model.modes=[12,12] \
+  data.subsample=2
+
+# Original neuraloperator-backed model
+python -m scripts.train_fno \
+  wandb.run_name=fno_original_burgers \
+  wandb.mode=disabled \
+  model.implementation=original \
+  data.dataset=burgers
 ```
 
-**Key Parameters (YAML path):**
-- `data.dataset`: Registered dataset name (e.g., `burgers`, `darcy`, `fd_bench`)
-- `data.n_samples`: Total samples to generate/use
-- `data.dataset_kwargs`: Optional dataset-provider arguments
-  - FD-Bench key args: `file_path`, `temporal_subsample`, `include_nu_channel`, `append_grid`, `normalize`
-- `model.implementation`: {ours, original}
-- `model.modes`: Fourier modes to retain
-- `model.width`: Hidden channel width
-- `training.batch_size`: Batch size
-- `training.epochs`: Number of epochs
-- `wandb.mode`: Set to `disabled` for offline runs
+### `scripts/evaluate_fno.py`
 
-**Output**: Best model checkpoint saved in `model.models_folder` with filename `<wandb.run_name>.pth` (default: `models/fno_burgers.pth`).
-
-### 5. Evaluate Models
+Evaluates one or two checkpoints.
 
 ```bash
-# Evaluate trained model (our implementation)
+# Single model
 python -m scripts.evaluate_fno --checkpoint_a models/fno_burgers.pth --n_plots 5
 
-# Compare with original FNO implementation
+# Pairwise comparison
 python -m scripts.evaluate_fno \
   --checkpoint_a models/fno_burgers.pth \
   --checkpoint_b models/fno_original_burgers.pth \
-  --n_plots 10
+  --name_a "Ours" \
+  --name_b "Original" \
+  --n_plots 5
 ```
 
-`--checkpoint` and `--original_checkpoint` are still supported as backward-compatible aliases.
+Backward-compatible aliases are supported:
+- `--checkpoint` for `--checkpoint_a`
+- `--original_checkpoint` for `--checkpoint_b`
 
-**Output**: 
-- Console: Parameter count, inference time, relative L2 error, MSE, MAE
-- PNG plots: Ground truth vs predictions, difference maps, side-by-side comparisons
+Compatibility rule when using two checkpoints:
+- dataset metadata must match (`dataset`, `subsample`, `dim`, `out_channels`, `dataset_kwargs`)
 
-## Model Architecture
+### `scripts/download_fd_bench_data.py`
 
-### Spectral Convolution
+Lists and checks FD-Bench HuggingFace presets (project-local downloads are disabled).
 
-The core operation replaces standard convolution in the Fourier domain:
+```bash
+# List available presets
+python -m scripts.download_fd_bench_data \
+  --list
 
-```
-Input: (batch, channels, spatial...)
-  ↓
-FFT (1D/2D/3D)
-  ↓
-Truncate to specified Fourier modes
-  ↓
-Learnable linear transform (channel-wise)
-  ↓
-Inverse FFT
-  ↓
-Output: (batch, channels, spatial...)
+# Check one preset and optional access check
+python -m scripts.download_fd_bench_data \
+  --dataset ns0 \
+  --check_access
 ```
 
-### FNO Layers
+## FD-Bench / PDEBench Compatibility Guide
 
-Each FNO layer combines:
-1. **Spectral convolution** (Fourier-domain operator)
-2. **Local convolution** (spatial domain, coeff-wise)
-3. **Normalization + Nonlinearity** (BatchNorm + ReLU)
-4. **Skip connection** (residual link)
+The FD-Bench ingestion path in `src/data/sources/fd_bench.py` is HuggingFace-only.
 
-The model automatically handles variable input resolutions from a single trained instance.
+- Source collection: `https://huggingface.co/collections/RuoyanLi1/fd-bench`
+- Registered datasets follow `fd_bench_<preset>` names (for example `fd_bench_ns0`, `fd_bench_tgv`).
+- FD-Bench entries are build-only datasets in the registry (no raw local generation).
+
+### Training with FD-Bench
+
+```bash
+python -m scripts.train_fno \
+  wandb.run_name=fdbench_run \
+  wandb.mode=disabled \
+  data.dataset=fd_bench_ns0 \
+  data.n_samples=500 \
+  data.subsample=2 \
+  data.dataset_kwargs.temporal_subsample=1 \
+  data.dataset_kwargs.batch_subsample=1 \
+  data.dataset_kwargs.normalize=false \
+  data.dataset_kwargs.shuffle=true \
+  data.dataset_kwargs.random_time=true
+```
+
+FD-Bench channel metadata is fixed per preset and registered in `FD_BENCH_DATASET_PRESETS`.
 
 ## Checkpoint Format
 
-Trained models are saved with both weights and hyperparameters:
+Saved checkpoints contain:
 
 ```python
 {
     "model_state_dict": {...},
     "hyperparameters": {
-        "dim": 1,
-        "modes": 16,
-        "width": 64,
-        "layers": 4,
-        "in_channels": 2,
-      "out_channels": 1,
-        "dataset": "burgers",
-      "subsample": 1,
-      "implementation": "ours"
-    }
+        "modes": [...],
+        "width": int,
+        "layers": int,
+        "in_channels": int,
+        "out_channels": int,
+        "dim": int,
+        "dataset": str,
+        "subsample": int,
+        "implementation": "ours" | "original",
+    },
 }
 ```
 
-This allows automatic model reconstruction during evaluation.
+These metadata are used to reconstruct the model and dataset settings during evaluation.
 
-## Typical Workflow
+## Troubleshooting
 
-1. **Generate data** (optional, as it will be generated on-the-fly if missing):
-   ```bash
-   python -m scripts.generate_data --burgers_samples 1000
-   ```
-
-2. **Inspect data** before training:
-   ```bash
-   python -m scripts.inspect_dataset --dataset burgers
-   ```
-
-3. **Train model**:
-   ```bash
-  python -m scripts.train_fno data.dataset=burgers training.epochs=500
-   ```
-
-4. **Evaluate**:
-   ```bash
-  python -m scripts.evaluate_fno --checkpoint_a models/fno_burgers.pth --n_plots 5
-   ```
-
-5. **Compare with original** (optional):
-   ```bash
-   python -m scripts.evaluate_fno \
-     --checkpoint_a models/fno_burgers.pth \
-     --checkpoint_b models/fno_original_burgers.pth
-   ```
+- Error: `wandb.run_name must be set`
+  - Fix: pass `wandb.run_name=<your_name>` in the train command.
+- Error: `HuggingFace datasets is required for FD-Bench ingestion`
+  - Fix: `pip install datasets`.
+- Error: `Checkpoints are incompatible`
+  - Fix: compare only checkpoints trained with matching dataset metadata.
+- Unexpected duplicate registration warning for built-in datasets:
+  - This warning is harmless and happens when registration is called multiple times in one process.
 
 ## References
 
-- **FNO Paper**: [Fourier Neural Operator for Parametric PDEs](https://arxiv.org/abs/2010.08895) (Zongyi Li et al., ICLR 2021)
-- **Original Implementation**: [GitHub - zongyi-li/fourier_neural_operator](https://github.com/zongyi-li/fourier_neural_operator)
+- Fourier Neural Operator for Parametric PDEs: https://arxiv.org/abs/2010.08895
+- Original implementation: https://github.com/zongyi-li/fourier_neural_operator
+- FD-Bench: https://anonymous.4open.science/r/FD-Bench-15BC

@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 from .sources import (
     generate_burgers_data,
     generate_darcy_data,
+    resolve_fd_bench_config,
     load_fd_bench_processed,
 )
 
@@ -18,8 +19,15 @@ class TensorOperatorDataset(Dataset):
     def __init__(self, x: torch.Tensor, y: torch.Tensor) -> None:
         if x.shape[0] != y.shape[0]:
             raise ValueError("Input and target tensors must have the same batch size")
+        if x.ndim < 2 or y.ndim < 2:
+            raise ValueError(
+                "Expected channel-first tensors with at least one spatial axis"
+            )
         self.x = x
         self.y = y
+        self.input_channels = int(x.shape[1])
+        self.out_channels = int(y.shape[1])
+        self.spatial_dim = int(x.ndim - 2)
 
     def __len__(self) -> int:
         return self.x.shape[0]
@@ -52,6 +60,7 @@ class FDBenchNextStepDataset(Dataset):
         self.spatial_dim = data.ndim - 3
         self.base_input_channels = data.shape[-1]
         self.target_channels = data.shape[-1]
+        self.out_channels = self.target_channels
         self.input_channels = self.base_input_channels + (
             self.spatial_dim if append_grid else 0
         )
@@ -150,24 +159,31 @@ def build_fd_bench_dataset(
     *,
     n_samples: int,
     subsample: int = 1,
-    file_path: str,
+    fd_dataset: str | None = None,
+    split: str | None = None,
     temporal_subsample: int = 1,
     batch_subsample: int = 1,
-    include_nu_channel: bool = True,
     normalize: bool = False,
     shuffle: bool = True,
     seed: int = 42,
     random_time: bool = True,
-    append_grid: bool = True,
+    append_grid: bool | None = None,
     **kwargs: Any,
 ) -> FDBenchNextStepDataset:
+    if not fd_dataset:
+        raise ValueError("FD-Bench builder requires an fd_dataset preset name")
+
+    preset = resolve_fd_bench_config(fd_dataset=fd_dataset, split=split)
+    if append_grid is None:
+        append_grid = bool(preset.get("append_grid", False))
+
     data, grid = load_fd_bench_processed(
-        file_path=file_path,
+        fd_dataset=str(preset["fd_dataset"]),
         n_samples=n_samples,
+        split=str(preset["split"]),
         subsample=subsample,
         temporal_subsample=temporal_subsample,
         batch_subsample=batch_subsample,
-        include_nu_channel=include_nu_channel,
         normalize=normalize,
         shuffle=shuffle,
         seed=seed,
