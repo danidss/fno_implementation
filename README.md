@@ -235,12 +235,16 @@ python -m scripts.train_fno \
   data.dataset=fd_bench_ns0 \
   data.n_samples=500 \
   data.subsample=2 \
+  data.dataset_kwargs.hf_cache_dir=... \
   data.dataset_kwargs.temporal_subsample=1 \
   data.dataset_kwargs.batch_subsample=1 \
   data.dataset_kwargs.normalize=false \
   data.dataset_kwargs.shuffle=true \
   data.dataset_kwargs.random_time=true
 ```
+
+You can also set `FNO_HF_CACHE_DIR` in your shell,
+which is used as a fallback when `data.dataset_kwargs.hf_cache_dir` is not provided.
 
 FD-Bench channel metadata is fixed per preset and registered in `FD_BENCH_DATASET_PRESETS`.
 

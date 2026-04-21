@@ -34,6 +34,7 @@ def register_builtin_datasets() -> None:
         warnings.warn("Builtin datasets have already been registered.")
         return
 
+    # 1D viscous Burgers operator-learning dataset (coefficient -> solution mapping).
     register_dataset(
         name="burgers",
         input_channels=2,
@@ -43,6 +44,7 @@ def register_builtin_datasets() -> None:
         generate_raw=generate_burgers_data,
         overwrite=False,
     )
+    # 2D Darcy flow dataset (permeability field -> pressure solution mapping).
     register_dataset(
         name="darcy",
         input_channels=3,
@@ -52,6 +54,7 @@ def register_builtin_datasets() -> None:
         generate_raw=generate_darcy_data,
         overwrite=False,
     )
+    # Synthetic 2D Navier-Stokes raw generator used for data generation workflows.
     register_dataset(
         name="navier_stokes",
         input_channels=3,
@@ -63,6 +66,7 @@ def register_builtin_datasets() -> None:
     )
     for fd_name in list_fd_bench_datasets():
         preset = get_fd_bench_dataset_preset(fd_name)
+        # Each FD-Bench registry entry is documented in `FD_BENCH_DATASET_PRESETS[fd_name]["description"]`.
         register_dataset(
             name=str(preset["registry_name"]),
             input_channels=int(preset["input_channels"]),

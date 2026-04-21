@@ -1,199 +1,205 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
-import torch
 
 
 FD_BENCH_COLLECTION_URL = "https://huggingface.co/collections/RuoyanLi1/fd-bench"
+DEFAULT_FD_BENCH_SPLIT = "test"
 
 # Metadata is fixed by preset and used as registry source-of-truth.
 FD_BENCH_DATASET_PRESETS: dict[str, dict[str, Any]] = {
     "advection0": {
         "registry_name": "fd_bench_advection0",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Advection0",
+        "description": "FD-Bench Advection dataset (index 0) on a 2D spatial domain.",
         "family": "advection",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "advection1": {
         "registry_name": "fd_bench_advection1",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Advection1",
+        "description": "FD-Bench Advection dataset (index 1) on a 2D spatial domain.",
         "family": "advection",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "advection2": {
         "registry_name": "fd_bench_advection2",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Advection2",
+        "description": "FD-Bench Advection dataset (index 2) on a 2D spatial domain.",
         "family": "advection",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "advection3": {
         "registry_name": "fd_bench_advection3",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Advection3",
+        "description": "FD-Bench Advection dataset (index 3) on a 2D spatial domain.",
         "family": "advection",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "advection4": {
         "registry_name": "fd_bench_advection4",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Advection4",
+        "description": "FD-Bench Advection dataset (index 4) on a 2D spatial domain.",
         "family": "advection",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "burgers0": {
         "registry_name": "fd_bench_burgers0",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Burgers0",
+        "description": "FD-Bench Burgers dataset (index 0) on a 2D spatial domain.",
         "family": "burgers",
         "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "burgers1": {
         "registry_name": "fd_bench_burgers1",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Burgers1",
+        "description": "FD-Bench Burgers dataset (index 1) on a 2D spatial domain.",
         "family": "burgers",
         "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "burgers2": {
         "registry_name": "fd_bench_burgers2",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Burgers2",
+        "description": "FD-Bench Burgers dataset (index 2) on a 2D spatial domain.",
         "family": "burgers",
         "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "burgers3": {
         "registry_name": "fd_bench_burgers3",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Burgers3",
+        "description": "FD-Bench Burgers dataset (index 3) on a 2D spatial domain.",
         "family": "burgers",
         "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "burgers4": {
         "registry_name": "fd_bench_burgers4",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-Burgers4",
+        "description": "FD-Bench Burgers dataset (index 4) on a 2D spatial domain.",
         "family": "burgers",
         "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "ns0": {
         "registry_name": "fd_bench_ns0",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-NS0",
+        "description": "FD-Bench Navier-Stokes dataset (index 0) on a 2D spatial domain.",
         "family": "navier_stokes",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "ns1": {
         "registry_name": "fd_bench_ns1",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-NS1",
+        "description": "FD-Bench Navier-Stokes dataset (index 1) on a 2D spatial domain.",
         "family": "navier_stokes",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "ns2": {
         "registry_name": "fd_bench_ns2",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-NS2",
+        "description": "FD-Bench Navier-Stokes dataset (index 2) on a 2D spatial domain.",
         "family": "navier_stokes",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "ns3": {
         "registry_name": "fd_bench_ns3",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-NS3",
+        "description": "FD-Bench Navier-Stokes dataset (index 3) on a 2D spatial domain.",
         "family": "navier_stokes",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "ns4": {
         "registry_name": "fd_bench_ns4",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-NS4",
+        "description": "FD-Bench Navier-Stokes dataset (index 4) on a 2D spatial domain.",
         "family": "navier_stokes",
         "spatial_dim": 2,
         "input_channels": 1,
         "out_channels": 1,
         "append_grid": False,
-        "split": "test",
     },
     "ldc": {
         "registry_name": "fd_bench_ldc",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-LDC",
-        "family": "lagrangian",
-        "spatial_dim": 1,
+        "description": "2D lid-driven cavity flow governed by compressible Navier-Stokes.",
+        "family": "compressible_navier_stokes",
+        "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "rpf": {
         "registry_name": "fd_bench_rpf",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-RPF",
-        "family": "lagrangian",
-        "spatial_dim": 1,
+        "description": "2D reverse Poiseuille flow governed by compressible Navier-Stokes.",
+        "family": "compressible_navier_stokes",
+        "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
     "tgv": {
         "registry_name": "fd_bench_tgv",
         "hf_dataset_id": "RuoyanLi1/FD-Bench-TGV",
-        "family": "lagrangian",
-        "spatial_dim": 1,
+        "description": "2D Taylor-Green vortex governed by compressible Navier-Stokes.",
+        "family": "compressible_navier_stokes",
+        "spatial_dim": 2,
         "input_channels": 2,
         "out_channels": 2,
         "append_grid": False,
-        "split": "test",
     },
 }
 
 
-def _load_hf_dataset(*, dataset_id: str, split: str):
+def _load_hf_dataset(
+    *,
+    dataset_id: str,
+    split: str,
+    cache_dir: str | None = None,
+):
     try:
         from datasets import load_dataset
     except ImportError as exc:
@@ -201,7 +207,13 @@ def _load_hf_dataset(*, dataset_id: str, split: str):
             "HuggingFace datasets is required for FD-Bench ingestion. Install with: pip install datasets"
         ) from exc
 
-    return load_dataset(dataset_id, split=split)
+    try:
+        return load_dataset(dataset_id, split=split, cache_dir=cache_dir)
+    except Exception as exc:
+        raise ValueError(
+            f"Unable to load FD-Bench dataset '{dataset_id}' split '{split}' from HuggingFace. "
+            "Verify the split name and network access."
+        ) from exc
 
 
 def list_fd_bench_datasets() -> list[str]:
@@ -239,7 +251,7 @@ def resolve_fd_bench_config(
     preset = get_fd_bench_dataset_preset(fd_dataset)
     preset_name = preset.get("fd_dataset", fd_dataset.strip().lower())
     preset["fd_dataset"] = preset_name
-    preset["split"] = split or preset.get("split", "test")
+    preset["split"] = split or DEFAULT_FD_BENCH_SPLIT
     return preset
 
 
@@ -265,15 +277,6 @@ def setup_fd_bench_datasets(*, check_access: bool = False) -> list[dict[str, Any
             setup_fd_bench_dataset(fd_dataset=name, check_access=check_access)
         )
     return configs
-
-
-def _default_grid(*, spatial_shape: tuple[int, ...]) -> torch.Tensor:
-    if len(spatial_shape) == 0:
-        raise ValueError("spatial_shape cannot be empty")
-
-    coords = [torch.linspace(0.0, 1.0, n, dtype=torch.float32) for n in spatial_shape]
-    mesh = torch.meshgrid(*coords, indexing="ij")
-    return torch.stack(mesh, dim=-1)
 
 
 def _subsample_spatial_time_channel(
@@ -376,7 +379,63 @@ def _decode_row_to_spatial_time_channel(
     return np.concatenate(decoded, axis=-1)
 
 
-def load_fd_bench_processed(
+def _decode_row_for_hf_map(
+    row: dict[str, Any],
+    *,
+    spatial_dim: int,
+    out_channels: int,
+    subsample: int,
+    temporal_subsample: int,
+) -> dict[str, np.ndarray]:
+    sample = decode_fd_bench_row(
+        row=row,
+        spatial_dim=spatial_dim,
+        out_channels=out_channels,
+        subsample=subsample,
+        temporal_subsample=temporal_subsample,
+    )
+    return {"fd_sample": sample.astype(np.float32, copy=False)}
+
+
+def _compute_fd_sample_normalization_stats(rows: Any) -> tuple[np.ndarray, np.ndarray]:
+    channel_sum: np.ndarray | None = None
+    channel_sq_sum: np.ndarray | None = None
+    total_count = 0
+
+    for row in rows:
+        sample = np.asarray(row["fd_sample"], dtype=np.float32)
+        flat = sample.reshape(-1, sample.shape[-1])
+        summed = flat.sum(axis=0)
+        sq_summed = np.square(flat).sum(axis=0)
+
+        if channel_sum is None:
+            channel_sum = summed
+            channel_sq_sum = sq_summed
+        else:
+            channel_sum += summed
+            channel_sq_sum += sq_summed
+        total_count += flat.shape[0]
+
+    if channel_sum is None or channel_sq_sum is None or total_count == 0:
+        raise ValueError("Unable to compute FD-Bench normalization statistics")
+
+    mean = channel_sum / float(total_count)
+    variance = channel_sq_sum / float(total_count) - np.square(mean)
+    variance = np.maximum(variance, 0.0)
+    std = np.sqrt(variance)
+    std = np.where(std == 0, 1.0, std)
+    return mean.astype(np.float32), std.astype(np.float32)
+
+
+def _normalize_fd_sample_row(
+    row: dict[str, Any], *, mean: np.ndarray, std: np.ndarray
+) -> dict[str, np.ndarray]:
+    sample = np.asarray(row["fd_sample"], dtype=np.float32)
+    normalized = (sample - mean) / std
+    return {"fd_sample": normalized.astype(np.float32, copy=False)}
+
+
+def load_fd_bench_rows(
     *,
     fd_dataset: str,
     n_samples: int,
@@ -387,20 +446,27 @@ def load_fd_bench_processed(
     normalize: bool = False,
     shuffle: bool = True,
     seed: int = 42,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    config = resolve_fd_bench_config(fd_dataset=fd_dataset, split=split)
+    hf_cache_dir: str | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Load a lazily-accessed HuggingFace subset without materializing all samples.
 
-    dataset = _load_hf_dataset(
+    Returns:
+        rows: HuggingFace dataset object supporting __len__/__getitem__
+        config: resolved FD-Bench preset metadata
+    """
+
+    resolved_cache_dir = hf_cache_dir or os.environ.get("FNO_HF_CACHE_DIR")
+    config = resolve_fd_bench_config(fd_dataset=fd_dataset, split=split)
+    rows = _load_hf_dataset(
         dataset_id=config["hf_dataset_id"],
         split=config["split"],
+        cache_dir=resolved_cache_dir,
     )
 
     if shuffle:
-        dataset = dataset.shuffle(seed=seed)
+        rows = rows.shuffle(seed=seed)
 
-    total_rows = len(dataset)
-    rows = dataset
-
+    total_rows = len(rows)
     if batch_subsample > 1:
         kept_indices = list(range(0, total_rows, batch_subsample))
         rows = rows.select(kept_indices)
@@ -408,33 +474,56 @@ def load_fd_bench_processed(
     if n_samples > 0:
         rows = rows.select(range(min(n_samples, len(rows))))
 
-    samples: list[np.ndarray] = []
-    for row in rows:
-        sample = _decode_row_to_spatial_time_channel(
-            row=row,
-            spatial_dim=int(config["spatial_dim"]),
-            out_channels=int(config["out_channels"]),
-        )
-        sample = _subsample_spatial_time_channel(
-            sample,
-            subsample=subsample,
-            temporal_subsample=temporal_subsample,
-        )
-        samples.append(sample)
-
-    if not samples:
-        raise ValueError("FD-Bench split produced no samples")
-
-    data = np.stack(samples, axis=0).astype(np.float32)
+    decode_kwargs = {
+        "spatial_dim": int(config["spatial_dim"]),
+        "out_channels": int(config["out_channels"]),
+        "subsample": int(max(1, subsample)),
+        "temporal_subsample": int(max(1, temporal_subsample)),
+    }
+    remove_columns = list(rows.column_names) if hasattr(rows, "column_names") else None
+    rows = rows.map(
+        lambda row: _decode_row_for_hf_map(row, **decode_kwargs),
+        batched=False,
+        remove_columns=remove_columns,
+    )
 
     if normalize:
-        mean = np.mean(data, axis=tuple(range(data.ndim - 1)), keepdims=True)
-        std = np.std(data, axis=tuple(range(data.ndim - 1)), keepdims=True)
-        std = np.where(std == 0, 1.0, std)
-        data = (data - mean) / std
+        mean, std = _compute_fd_sample_normalization_stats(rows)
+        rows = rows.map(
+            lambda row: _normalize_fd_sample_row(row, mean=mean, std=std),
+            batched=False,
+        )
 
-    grid = _default_grid(spatial_shape=tuple(data.shape[1:-2]))
-    return torch.tensor(data, dtype=torch.float32), grid
+    if hasattr(rows, "with_format"):
+        rows = rows.with_format(
+            type="numpy",
+            columns=["fd_sample"],
+            output_all_columns=False,
+        )
+
+    return rows, config
+
+
+def decode_fd_bench_row(
+    *,
+    row: dict[str, Any],
+    spatial_dim: int,
+    out_channels: int,
+    subsample: int = 1,
+    temporal_subsample: int = 1,
+) -> np.ndarray:
+    """Decode one row into [spatial..., time, channels] with optional subsampling."""
+
+    sample = _decode_row_to_spatial_time_channel(
+        row=row,
+        spatial_dim=spatial_dim,
+        out_channels=out_channels,
+    )
+    return _subsample_spatial_time_channel(
+        sample,
+        subsample=subsample,
+        temporal_subsample=temporal_subsample,
+    )
 
 
 def generate_fd_bench_raw(*, n_samples: int, **kwargs: Any) -> dict[str, np.ndarray]:
