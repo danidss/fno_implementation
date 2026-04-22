@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import numpy as np
@@ -9,6 +10,16 @@ import numpy as np
 FD_BENCH_COLLECTION_URL = "https://huggingface.co/collections/RuoyanLi1/fd-bench"
 DEFAULT_FD_BENCH_SPLIT = "test"
 
+# FD-Bench schema notes (validated with scripts.inspect_dataset --fd_bench_deep_inspect):
+# - advection*, ns*: each row usually has many scalar 2D snapshots [H, W] keyed by time.
+# - burgers*: each row usually has many channels-first snapshots [2, H, W], where the 2
+#   channels represent a 2-component Burgers state (u, v) at that time.
+# - ldc/rpf/tgv: arrays are point-cloud-like [N_points, 2]. Here 2 is a 2-component
+#   state per point (typically velocity components). Depending on preset, temporal
+#   progression can be encoded across columns or across rows.
+#
+# Internal decoded representation throughout this file is always:
+# [spatial..., time, channels].
 # Metadata is fixed by preset and used as registry source-of-truth.
 FD_BENCH_DATASET_PRESETS: dict[str, dict[str, Any]] = {
     "advection0": {
@@ -167,8 +178,8 @@ FD_BENCH_DATASET_PRESETS: dict[str, dict[str, Any]] = {
         "description": "2D lid-driven cavity flow governed by compressible Navier-Stokes.",
         "family": "compressible_navier_stokes",
         "spatial_dim": 2,
-        "input_channels": 2,
-        "out_channels": 2,
+        "input_channels": 1,
+        "out_channels": 1,
         "append_grid": False,
     },
     "rpf": {
@@ -177,8 +188,8 @@ FD_BENCH_DATASET_PRESETS: dict[str, dict[str, Any]] = {
         "description": "2D reverse Poiseuille flow governed by compressible Navier-Stokes.",
         "family": "compressible_navier_stokes",
         "spatial_dim": 2,
-        "input_channels": 2,
-        "out_channels": 2,
+        "input_channels": 1,
+        "out_channels": 1,
         "append_grid": False,
     },
     "tgv": {
@@ -187,8 +198,8 @@ FD_BENCH_DATASET_PRESETS: dict[str, dict[str, Any]] = {
         "description": "2D Taylor-Green vortex governed by compressible Navier-Stokes.",
         "family": "compressible_navier_stokes",
         "spatial_dim": 2,
-        "input_channels": 2,
-        "out_channels": 2,
+        "input_channels": 1,
+        "out_channels": 1,
         "append_grid": False,
     },
 }
@@ -199,6 +210,7 @@ def _load_hf_dataset(
     dataset_id: str,
     split: str,
     cache_dir: str | None = None,
+    streaming: bool = False,
 ):
     try:
         from datasets import load_dataset
@@ -208,7 +220,12 @@ def _load_hf_dataset(
         ) from exc
 
     try:
-        return load_dataset(dataset_id, split=split, cache_dir=cache_dir)
+        return load_dataset(
+            dataset_id,
+            split=split,
+            cache_dir=cache_dir,
+            streaming=streaming,
+        )
     except Exception as exc:
         raise ValueError(
             f"Unable to load FD-Bench dataset '{dataset_id}' split '{split}' from HuggingFace. "
@@ -308,6 +325,13 @@ def _decode_array_to_spatial_time_channel(
     spatial_dim: int,
     out_channels: int,
 ) -> np.ndarray:
+    """Decode one tensor-like value into canonical layout [spatial..., time, channels].
+
+    The decoder supports common FD-Bench storage conventions observed across presets,
+    including scalar snapshots [H, W], channels-first snapshots [C, H, W],
+    and time-major variants.
+    """
+
     arr = np.asarray(array, dtype=np.float32)
     if arr.ndim == 0:
         raise ValueError("Scalar values are not supported in FD-Bench rows")
@@ -327,8 +351,20 @@ def _decode_array_to_spatial_time_channel(
         return np.transpose(arr, (*spatial_axes, 0))[..., None]
 
     if arr.ndim == spatial_dim + 1:
+        # [channels, spatial...] -> single time step (observed in FD-Bench Burgers)
+        if out_channels > 1 and arr.shape[0] == out_channels:
+            spatial_axes = tuple(range(1, 1 + spatial_dim))
+            channel_last = np.transpose(arr, (*spatial_axes, 0))
+            return np.expand_dims(channel_last, axis=-2)
+
         # [spatial..., channels] -> single time step
-        if arr.shape[-1] == out_channels:
+        inferred_channel_last = arr.shape[-1] == out_channels or (
+            arr.shape[-1] <= 4
+            and all(
+                int(arr.shape[axis]) > int(arr.shape[-1]) for axis in range(spatial_dim)
+            )
+        )
+        if inferred_channel_last:
             return np.expand_dims(arr, axis=-2)
 
         # [time, spatial...] -> scalar channel
@@ -354,10 +390,41 @@ def _decode_row_to_spatial_time_channel(
     spatial_dim: int,
     out_channels: int,
 ) -> np.ndarray:
+    """Decode one HF row into [spatial..., time, channels].
+
+    A row can store temporal progression either across multiple columns or inside a
+    single multi-dimensional tensor. When multiple columns are present, numeric suffixes
+    in column names are used to recover temporal order.
+    """
+
+    def _column_sort_key(name: str) -> tuple[str, int | float, str]:
+        # Keep temporal columns in numeric order for names like "0", "1", ..., "10".
+        lowered = name.lower()
+        match = re.search(r"(\d+)$", lowered)
+        if match:
+            prefix = lowered[: match.start()].rstrip("/_- ")
+            return (prefix, float(int(match.group(1))), lowered)
+        return (lowered, float("inf"), lowered)
+
     if "data" in row:
         values = [row["data"]]
     else:
-        values = [row[k] for k in sorted(row.keys())]
+        columns: list[tuple[str, Any]] = []
+        for key, value in row.items():
+            if key == "fd_sample":
+                continue
+            arr = np.asarray(value)
+            if arr.ndim < spatial_dim:
+                continue
+            columns.append((key, value))
+
+        if not columns:
+            raise ValueError(
+                "FD-Bench row does not contain any array-like data columns"
+            )
+
+        columns.sort(key=lambda item: _column_sort_key(item[0]))
+        values = [value for _, value in columns]
 
     decoded = [
         _decode_array_to_spatial_time_channel(
@@ -371,11 +438,17 @@ def _decode_row_to_spatial_time_channel(
     if len(decoded) == 1:
         return decoded[0]
 
-    # If each column contributes one time slice, concatenate across time.
-    if all(part.shape[-2] == 1 and part.shape[-1] == out_channels for part in decoded):
-        return np.concatenate(decoded, axis=-2)
+    # If each column contributes one time slice with a consistent channel count,
+    # concatenate across time regardless of metadata channel assumptions.
+    if all(part.shape[-2] == 1 for part in decoded):
+        channel_counts = {int(part.shape[-1]) for part in decoded}
+        if len(channel_counts) == 1:
+            return np.concatenate(decoded, axis=-2)
 
     # Otherwise treat columns as channels.
+    if all(part.shape[:-1] == decoded[0].shape[:-1] for part in decoded):
+        return np.concatenate(decoded, axis=-1)
+
     return np.concatenate(decoded, axis=-1)
 
 
@@ -502,6 +575,53 @@ def load_fd_bench_rows(
         )
 
     return rows, config
+
+
+def load_fd_bench_probe_sample(
+    *,
+    fd_dataset: str,
+    split: str | None = None,
+    subsample: int = 1,
+    temporal_subsample: int = 1,
+    batch_subsample: int = 1,
+    shuffle: bool = False,
+    seed: int = 42,
+    hf_cache_dir: str | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Load and decode a single FD-Bench sample using HF streaming.
+
+    This path is intended for lightweight inspection workflows where
+    materializing/mapping a full split would be unnecessarily expensive.
+    """
+
+    resolved_cache_dir = hf_cache_dir or os.environ.get("FNO_HF_CACHE_DIR")
+    config = resolve_fd_bench_config(fd_dataset=fd_dataset, split=split)
+    rows = _load_hf_dataset(
+        dataset_id=config["hf_dataset_id"],
+        split=config["split"],
+        cache_dir=resolved_cache_dir,
+        streaming=True,
+    )
+
+    if shuffle and hasattr(rows, "shuffle"):
+        # Keep the buffer modest so probing remains lightweight.
+        rows = rows.shuffle(seed=seed, buffer_size=256)
+
+    stride = int(max(1, batch_subsample))
+    for idx, row in enumerate(rows):
+        if idx % stride != 0:
+            continue
+
+        sample = decode_fd_bench_row(
+            row=row,
+            spatial_dim=int(config["spatial_dim"]),
+            out_channels=int(config["out_channels"]),
+            subsample=int(max(1, subsample)),
+            temporal_subsample=int(max(1, temporal_subsample)),
+        )
+        return sample.astype(np.float32, copy=False), config
+
+    raise ValueError("FD-Bench split produced no samples")
 
 
 def decode_fd_bench_row(

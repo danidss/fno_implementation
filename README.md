@@ -100,7 +100,7 @@ All scripts use `src.data.registry`.
   - `fd_bench_<preset>` entries (train/eval from HuggingFace FD-Bench source)
 - Core registry capabilities:
   - discover available datasets via `list_datasets(...)`
-  - build train/test tensors via `build_train_test_split_from_args(...)`
+  - build dataset splits via `build_train_test_split_from_args(...)`
   - generate raw data via `generate_raw_data(...)`
 
 ## Script Reference
@@ -120,7 +120,9 @@ Notes:
 
 ### `scripts/inspect_dataset.py`
 
-Builds train/test splits through the registry and prints sample tensors and metadata.
+Provides two inspection modes:
+- Single dataset mode: builds dataset splits through the registry and prints shapes/spec metadata.
+- FD-Bench overview mode: loads one sample from each FD-Bench preset and prints a metadata-vs-decoded summary table.
 
 ```bash
 python -m scripts.inspect_dataset --dataset burgers --n_samples 1000 --subsample 8
@@ -134,6 +136,13 @@ python -m scripts.inspect_dataset \
   --dataset fd_bench_ns0 \
   --n_samples 100 \
   --dataset_kwargs_json '{"shuffle":false,"random_time":false}'
+
+# Overview: inspect one sample per FD-Bench preset and compare
+# preset metadata (dim/channels) against decoded sample shape.
+python -m scripts.inspect_dataset \
+  --fd_bench_overview \
+  --subsample 1 \
+  --temporal_subsample 1
 ```
 
 ### `scripts/visualize_data.py`

@@ -39,7 +39,16 @@ class TensorOperatorDataset(Dataset):
 
 
 class FDBenchDataset(Dataset):
-    """FD-Bench next-step dataset backed by HF rows preprocessed via map."""
+    """FD-Bench next-step dataset backed by HF rows preprocessed via map.
+
+    Expected per-row tensor format is [spatial..., time, channels] in row["fd_sample"].
+    Each dataset item is a one-step pair (x_t, y_t+1) sampled from one row:
+    - x_t = sample[..., t0, :]
+    - y_t1 = sample[..., t0 + 1, :]
+
+    Important implication: __len__ equals number of rows, so with random_time=True
+    each epoch samples one temporal pair per row rather than all possible (T-1) pairs.
+    """
 
     def __init__(
         self,
@@ -214,6 +223,16 @@ def build_fd_bench_dataset(
     append_grid: bool | None = None,
     **kwargs: Any,
 ) -> FDBenchDataset:
+    """Build FD-Bench next-step dataset.
+
+    Practical usage notes:
+    - For training, pass split="train" explicitly in dataset_kwargs to avoid
+      accidentally using the default probe-oriented split.
+    - For single-trajectory schemas where time is stored across rows (not columns),
+      this next-step builder may underutilize temporal information and can require a
+      custom sequence wrapper that forms (row_t, row_t+1) pairs across row indices.
+    """
+
     if not fd_dataset:
         raise ValueError("FD-Bench builder requires an fd_dataset preset name")
 
