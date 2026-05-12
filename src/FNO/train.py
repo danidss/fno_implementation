@@ -90,7 +90,8 @@ def train_model(
         )
 
         print(
-            f"Epoch {epoch} | Train Loss: {train_l2:.6f} | Val Loss: {val_results['rel_l2']:.6f}"
+            f"Epoch {epoch} | Train Loss: {train_l2 / len(train_loader.dataset):.6f}",
+            f" | Val Loss: {val_results['rel_l2']:.6f}",
         )
 
         scheduler.step()
