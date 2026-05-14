@@ -50,7 +50,29 @@ def get_parser() -> argparse.ArgumentParser:
         help="Optional display name for second model",
     )
     parser.add_argument(
-        "--n_plots", type=int, default=3, help="Number of test samples to plot"
+        "--n_plots",
+        type=int,
+        default=3,
+        help="Backward-compatible alias for --top_k",
+    )
+    parser.add_argument(
+        "--top_k",
+        type=int,
+        default=None,
+        help="Number of best/worst samples to plot per model",
+    )
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default="rel_l2",
+        choices=["rel_l2", "mse", "mae"],
+        help="Metric used for ranking and error distributions",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="plots",
+        help="Directory to save evaluation plots",
     )
     return parser
 
@@ -62,13 +84,17 @@ def main() -> None:
     if not args.checkpoint_a:
         parser.error("one of --checkpoint_a/--checkpoint is required")
 
+    top_k = args.top_k if args.top_k is not None else args.n_plots
+
     evaluate_from_checkpoints(
         checkpoint_a=args.checkpoint_a,
         checkpoint_b=args.checkpoint_b,
         n_samples=args.n_samples,
         batch_size=args.batch_size,
         train_split=args.train_split,
-        n_plots=args.n_plots,
+        top_k=top_k,
+        metric=args.metric,
+        output_dir=args.output_dir,
         name_a=args.name_a,
         name_b=args.name_b,
     )

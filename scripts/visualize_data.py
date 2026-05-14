@@ -4,7 +4,6 @@ from src.data.providers_builtin import register_builtin_datasets
 from src.data.registry import generate_raw_data, list_datasets
 from src.data.data_visualization import (
     visualize_burgers_comparison,
-    visualize_burgers_samples,
     visualize_burgers_statistics,
     visualize_darcy_samples,
     visualize_darcy_statistics,
@@ -25,7 +24,6 @@ def _get_visualization_registry():
         "burgers": {
             "title": "Burgers 1-D",
             "sample_plotters": [
-                visualize_burgers_samples,
                 visualize_burgers_comparison,
             ],
             "stats_plotters": [visualize_burgers_statistics],

@@ -24,7 +24,9 @@ def evaluate_from_checkpoints(
     n_samples: int = 200,
     batch_size: int = 20,
     train_split: float = 0.8,
-    n_plots: int = 3,
+    top_k: int = 2,
+    metric: str = "rel_l2",
+    output_dir: str = "plots",
     name_a: str | None = None,
     name_b: str | None = None,
 ) -> None:
@@ -75,5 +77,7 @@ def evaluate_from_checkpoints(
         dataset_name=args.dataset,
         dim=dim,
         device=device,
-        n_plots=n_plots,
+        top_k=top_k,
+        metric=metric,
+        output_dir=output_dir,
     )

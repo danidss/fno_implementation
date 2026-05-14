@@ -11,7 +11,7 @@ from src.FNO.model import FNO
 from src.FNO.original_model import OriginalFNO
 from src.data.providers_builtin import register_builtin_datasets
 from src.data.registry import build_train_test_split_from_args
-from src.eval.evaluate import generate_prediction_plots
+from src.eval.evaluate import generate_high_impact_plots
 from src.utils import set_seed, load_model_from_checkpoint
 
 
@@ -168,14 +168,13 @@ def main(cfg: DictConfig) -> None:
                     device,
                     model_name="best_model",
                 )
-                plot_paths = generate_prediction_plots(
-                    model=best_model,
+                plot_paths = generate_high_impact_plots(
+                    models=[("best_model", best_model)],
                     test_dataset=test_dataset,
                     dataset_name=cfg.data.dataset,
                     dim=dim,
                     device=device,
-                    n_plots=3,
-                    model_name="best_model",
+                    top_k=2,
                 )
 
                 plot_images = [
@@ -184,7 +183,7 @@ def main(cfg: DictConfig) -> None:
                 ]
 
                 if plot_images:
-                    wandb.log({"eval/prediction_plots": plot_images})
+                    wandb.log({"eval/high_impact_plots": plot_images})
             except Exception as exc:
                 print(f"Warning: failed to generate/upload evaluation plots: {exc}")
         wandb.finish()
